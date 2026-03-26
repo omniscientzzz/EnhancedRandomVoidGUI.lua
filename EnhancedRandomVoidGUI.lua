@@ -64,6 +64,72 @@ local function GetSafeVoidOffset()
 end
 
 -- ==========================================
+-- [ 新增：單次防禦屬性套用 (因應重生自動恢復) ]
+-- ==========================================
+local function ApplyOneTimeSetups(char)
+    if not char then return end
+    local hum = char:WaitForChild("Humanoid", 3)
+    local hrp = char:WaitForChild("HumanoidRootPart", 3)
+    
+    if not isMasterActive then return end -- 若等待期間被手動關閉則取消
+
+    -- [ 防禦層級 1：網路休眠 (Network Sleeping) ]
+    if hrp then
+        pcall(function()
+            sethiddenproperty(hrp, "NetworkIsSleeping", true)
+        end)
+    end
+
+    -- [ 防禦層級 2：神級狀態與血量鎖定 (God Mode & State Freeze) ]
+    if hum then
+        -- 鎖定無敵血量
+        hum.MaxHealth = math.huge
+        hum.Health = math.huge
+        
+        -- 清除舊的血量鎖定，避免重生造成重複綁定
+        if connections.HealthLock then connections.HealthLock:Disconnect() end
+        
+        connections.HealthLock = hum.HealthChanged:Connect(function()
+            if hum.Health < hum.MaxHealth then
+                hum.Health = hum.MaxHealth
+            end
+        end)
+
+        -- 封鎖所有致死或失控的狀態
+        local badStates = {
+            Enum.HumanoidStateType.Dead,
+            Enum.HumanoidStateType.Ragdoll,
+            Enum.HumanoidStateType.FallingDown,
+            Enum.HumanoidStateType.Physics,
+            Enum.HumanoidStateType.PlatformStanding,
+            Enum.HumanoidStateType.Stunned,
+            Enum.HumanoidStateType.Seated
+        }
+        for _, s in ipairs(badStates) do
+            if originalStates[s] == nil then
+                originalStates[s] = hum:GetStateEnabled(s)
+            end
+            hum:SetStateEnabled(s, false)
+        end
+    end
+end
+
+-- ==========================================
+-- [ 新增：角色重生監聽 ]
+-- ==========================================
+LocalPlayer.CharacterAdded:Connect(function(char)
+    -- 清理舊角色的實體屬性快取，防止記憶體洩漏與報錯
+    originalPhysicalProperties = {}
+    
+    if isMasterActive then
+        task.spawn(function()
+            task.wait(0.2) -- 給予微小延遲讓角色在伺服器端物理建立完成
+            ApplyOneTimeSetups(char)
+        end)
+    end
+end)
+
+-- ==========================================
 -- [ 極簡 UI 介面設計 - 一鍵啟動版 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
@@ -110,7 +176,7 @@ TopBarFix.Parent = TopBar
 local Title = Instance.new('TextLabel')
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = '⚡ OBLIVION PROTOCOL V2'
+Title.Text = '⚡ OBLIVION PROTOCOL V3'
 Title.TextColor3 = Color3.fromRGB(200, 180, 255)
 Title.TextSize = 13
 Title.Font = Enum.Font.GothamBold
@@ -183,43 +249,8 @@ local function ToggleAll()
     connections = {}
 
     if state then
-        local char = LocalPlayer.Character
-        local hum = GetHum()
-        
-        -- [ 防禦層級 1：網路休眠 (Network Sleeping) ]
-        -- 讓支援的執行器將角色的物理所有權休眠，免疫其他客戶端的碰撞干擾
-        pcall(function()
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                sethiddenproperty(char.HumanoidRootPart, "NetworkIsSleeping", true)
-            end
-        end)
-
-        -- [ 防禦層級 2：神級狀態與血量鎖定 (God Mode & State Freeze) ]
-        if hum then
-            -- 鎖定無敵血量
-            hum.MaxHealth = math.huge
-            hum.Health = math.huge
-            connections.HealthLock = hum.HealthChanged:Connect(function()
-                if hum.Health < hum.MaxHealth then
-                    hum.Health = hum.MaxHealth
-                end
-            end)
-
-            -- 封鎖所有致死或失控的狀態
-            local badStates = {
-                Enum.HumanoidStateType.Dead,
-                Enum.HumanoidStateType.Ragdoll,
-                Enum.HumanoidStateType.FallingDown,
-                Enum.HumanoidStateType.Physics,
-                Enum.HumanoidStateType.PlatformStanding,
-                Enum.HumanoidStateType.Stunned,
-                Enum.HumanoidStateType.Seated
-            }
-            for _, s in ipairs(badStates) do
-                originalStates[s] = hum:GetStateEnabled(s)
-                hum:SetStateEnabled(s, false)
-            end
-        end
+        -- 啟動時立刻為當前角色套用單次設定
+        ApplyOneTimeSetups(LocalPlayer.Character)
 
         -- [ 防禦層級 3：強化版 Void TP ]
         connections.VoidTP = RunService.Heartbeat:Connect(function()
@@ -250,7 +281,6 @@ local function ToggleAll()
         end)
 
         -- [ 防禦層級 5：免疫外部寄生 (Anti-Weld / Anti-Attach) ]
-        -- 防止外掛用 Weld 將奇怪的物件綁在你身上，或強迫你坐下
         connections.AntiAttach = RunService.Heartbeat:Connect(function()
             local c = LocalPlayer.Character
             if c then
@@ -300,8 +330,8 @@ local function ToggleAll()
         local hum = GetHum()
         
         if hum then
-            for state, isEnabled in pairs(originalStates) do
-                hum:SetStateEnabled(state, isEnabled)
+            for stateType, isEnabled in pairs(originalStates) do
+                hum:SetStateEnabled(stateType, isEnabled)
             end
         end
 
