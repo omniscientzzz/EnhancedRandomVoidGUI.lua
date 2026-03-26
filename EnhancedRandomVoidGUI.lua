@@ -293,28 +293,41 @@ local function ToggleAll()
             end
         end
 
-        -- [ 防禦 5：真・反綁架錨點 (Anti-Bring & Anchor) ]
+        -- [ 防禦 5：真・反綁架錨點 (Anti-Bring & Anchor) + 虛空折返 ]
         connections.AntiBring = RunService.RenderStepped:Connect(function()
             local hrp = GetHRP()
             if hrp then
                 if lastSafeCFrame then
                     local distance = (hrp.Position - lastSafeCFrame.Position).Magnitude
-                    if distance > 150 then
+                    
+                    -- 如果掉落太深，強制虛空折返
+                    if hrp.Position.Y < -500 then
+                        hrp.CFrame = lastSafeCFrame + Vector3.new(0, 50, 0)
+                        hrp.AssemblyLinearVelocity = Vector3.zero
+                    -- 檢查異常位移 (反傳送)
+                    elseif distance > 150 then
                         hrp.CFrame = lastSafeCFrame
                         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                     else
+                        -- 正常在地表移動，更新安全座標
                         lastSafeCFrame = hrp.CFrame
                     end
                 else
                     lastSafeCFrame = hrp.CFrame
                 end
+                
+                -- 強制解除惡意定身 (Anti-Anchor)
+                if hrp.Anchored then hrp.Anchored = false end
             end
         end)
 
-        -- [ 防禦 6：引擎級虛無化 (Stepped Collision Nullification & Anti-Fling) ]
+        -- [ 防禦 6：引擎級虛無化 + 絕對領域 (Aura Nullification) ]
         connections.PhysicsStepped = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild('HumanoidRootPart')
+
             if char then
+                -- 虛無化自身物理碰撞
                 for _, part in ipairs(char:GetDescendants()) do
                     if part:IsA("BasePart") then
                         if not originalPhysicalProperties[part] then
@@ -327,19 +340,41 @@ local function ToggleAll()
                     end
                 end
                 
-                local hrp = char:FindFirstChild('HumanoidRootPart')
+                -- 確保自己不受動能影響
                 if hrp then
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                     hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+                    
+                    -- 【新增】絕對領域：粉碎接近的威脅 (半徑 15 內的物體失去動能)
+                    local nearbyParts = Workspace:GetPartBoundsInRadius(hrp.Position, 15)
+                    for _, part in ipairs(nearbyParts) do
+                        if part:IsA("BasePart") and not part:IsDescendantOf(char) and not part.Anchored then
+                            -- 排除尺寸超大的物體 (避免影響我們自己放大的 Hitbox)
+                            if part.Size.Magnitude < 3000 then
+                                part.AssemblyLinearVelocity = Vector3.zero
+                                part.AssemblyAngularVelocity = Vector3.zero
+                                part.CanCollide = false
+                            end
+                        end
+                    end
                 end
             end
         end)
 
-        -- [ 防禦 7：心跳級免疫外部寄生 (Heartbeat Anti-Attach) ]
+        -- [ 防禦 7：心跳級免疫外部寄生、反控場、相機保護 ]
         connections.AntiAttach = RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character
             if char then
                 local hrp = char:FindFirstChild('HumanoidRootPart')
+                local hum = char:FindFirstChild('Humanoid')
+                
+                -- 相機防劫持 (強制看回自己)
+                local cam = Workspace.CurrentCamera
+                if cam and hum and cam.CameraSubject ~= hum then
+                    cam.CameraSubject = hum
+                    cam.CameraType = Enum.CameraType.Custom
+                end
+
                 if hrp then
                     for _, v in ipairs(hrp:GetChildren()) do
                         if v:IsA("BodyModifier") or v:IsA("BodyPosition") or v:IsA("BodyVelocity") or v:IsA("BodyGyro") or v:IsA("AngularVelocity") or v:IsA("LinearVelocity") or v:IsA("RocketPropulsion") then
@@ -357,9 +392,12 @@ local function ToggleAll()
                     end
                 end
                 
-                local hum = char:FindFirstChild("Humanoid")
-                if hum and hum.Health < hum.MaxHealth then
-                    hum.Health = hum.MaxHealth
+                if hum then
+                    -- 血量鎖定
+                    if hum.Health < hum.MaxHealth then hum.Health = hum.MaxHealth end
+                    -- 反強控：禁止坐下與禁止跌倒
+                    if hum.Sit then hum.Sit = false end
+                    if hum.PlatformStand then hum.PlatformStand = false end
                 end
             end
         end)
@@ -410,6 +448,7 @@ local function ToggleAll()
                                 obj.BrickColor = BrickColor.new("Cyan")
                                 obj.Material = Enum.Material.ForceField
                                 obj.CanCollide = false
+                                obj.CanTouch = true -- 【穿透機制】我們的投擲物具備絕對觸碰判定
                                 obj.Massless = true
                             end
                         end
@@ -436,6 +475,7 @@ local function ToggleAll()
         -- [ 關閉狀態：還原所有屬性與環境 ]
         local char = LocalPlayer.Character
         local hum = GetHum()
+        local hrp = GetHRP()
         
         pcall(function()
             Workspace.FallenPartsDestroyHeight = originalFallenHeight
@@ -483,8 +523,8 @@ local function ToggleAll()
         lastSafeCFrame = nil
         
         pcall(function()
-            if char and char:FindFirstChild("HumanoidRootPart") then
-                sethiddenproperty(char.HumanoidRootPart, "NetworkIsSleeping", false)
+            if hrp then
+                sethiddenproperty(hrp, "NetworkIsSleeping", false)
             end
         end)
     end
