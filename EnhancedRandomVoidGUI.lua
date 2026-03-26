@@ -1,9 +1,9 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V6: EXTREME HYBRID (Hitbox Restored) ]] --
--- 功能：無限小自轉 Hitbox (自己)、恢復敵人 Hitbox、遠程殺死防禦、爆炸自動拆除、縮小版拖拽 UI
--- 座標：完全還原 Void 原始偏移 X-1489021035, Z+1547417969
+-- [[ VOID x AEGIS V6: EXTREME HYBRID (True Void Edition) ]] --
+-- 功能：真正虛空傳送(視角與本體皆入虛空)、無限小自轉、防爆、防遠程、縮小版UI
+-- 座標：X -1489021035.8, Z +1547417969.8
 
 local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
@@ -16,7 +16,7 @@ local LocalPlayer = Players.LocalPlayer
 -- ==========================================
 local isActive = false
 local connections = {}
-local realCFrame = nil
+local savedCFrame = nil -- 用於記錄進入虛空前的位置
 local teleportCount = 0
 
 local function ClearConnections()
@@ -26,7 +26,6 @@ local function ClearConnections()
         end
     end
     table.clear(connections)
-    pcall(function() RunService:UnbindFromRenderStep("VoidRestore") end)
 end
 
 -- ==========================================
@@ -58,7 +57,7 @@ MainStroke.Thickness = 2
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '⚡ VOID EXTREME'
+TitleText.Text = '⚡ TRUE VOID'
 TitleText.TextColor3 = Color3.fromRGB(200, 180, 255)
 TitleText.TextSize = 13
 TitleText.Font = Enum.Font.GothamBold
@@ -103,89 +102,98 @@ local function StartEngine()
     teleportCount = 0
     pcall(function() workspace.FallenPartsDestroyHeight = -math.huge end)
 
-    local function OptimizeCharacter(char)
-        if not char then return end
-        local hum = char:WaitForChild("Humanoid")
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then 
+            savedCFrame = hrp.CFrame -- 記錄進入虛空前的真實地圖位置
+        end
+    end
+
+    local function OptimizeCharacter(c)
+        if not c then return end
+        local hum = c:WaitForChild("Humanoid")
         pcall(function()
             hum.MaxHealth = math.huge
             hum.Health = math.huge
             hum.BreakJointsOnDeath = false
             hum.RequiresNeck = false
-            -- Anti-Remote Kill 狀態鎖定
             hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
             hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         end)
     end
     
-    OptimizeCharacter(LocalPlayer.Character)
+    OptimizeCharacter(char)
 
-    -- [1. 自我 Hitbox 最小化與旋轉干擾]
+    -- [1. 自我 Hitbox 最小化]
     connections.Stepped = RunService.Stepped:Connect(function()
         if not isActive then return end
-        local char = LocalPlayer.Character
-        if char then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then 
-                realCFrame = hrp.CFrame 
-                -- 瘋狂自轉以干擾伺服器位置判定與玩家鎖定
-                hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(math.random(1, 360)), 0)
-            end
-            
-            for _, part in ipairs(char:GetDescendants()) do
+        local currentChar = LocalPlayer.Character
+        if currentChar then
+            for _, part in ipairs(currentChar:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
-                    part.Size = Vector3.new(0.001, 0.001, 0.001) -- 無限小體積
+                    part.Size = Vector3.new(0.001, 0.001, 0.001)
                     if part.Name == "Head" then part.Transparency = 1 end
                 end
             end
             
-            -- 自動清除有害負面狀態 (V6 特性)
-            for _, obj in ipairs(char:GetDescendants()) do
+            -- 自動清除自身有害狀態
+            for _, obj in ipairs(currentChar:GetDescendants()) do
                 if obj:IsA("Fire") or obj:IsA("Smoke") then obj:Destroy() end
             end
         end
 
-        -- [2. 恢復敵人 Hitbox (僅關閉碰撞，不修改大小)]
+        -- [2. 關閉敵人碰撞]
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character then
                 for _, part in ipairs(player.Character:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
+                    if part:IsA("BasePart") then part.CanCollide = false end
                 end
             end
         end
     end)
 
-    -- [3. Void 原始傳送邏輯 (極端座標偏移)]
+    -- [3. True Void 傳送邏輯 (視角與本體皆在虛空)]
     connections.Heartbeat = RunService.Heartbeat:Connect(function()
         if not isActive then return end
-        local char = LocalPlayer.Character
-        if char and realCFrame then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
+        local currentChar = LocalPlayer.Character
+        if currentChar and savedCFrame then
+            local hrp = currentChar:FindFirstChild("HumanoidRootPart")
             if hrp then
-                local pos = realCFrame.Position
-                -- Void 核心數值
-                hrp.CFrame = CFrame.new(pos.X + -1489021035.8, pos.Y, pos.Z + 1547417969.8)
+                -- 真實傳送至虛空，並加上隨機自轉干擾鎖定
+                local voidPos = Vector3.new(savedCFrame.X - 1489021035.8, savedCFrame.Y, savedCFrame.Z + 1547417969.8)
+                hrp.CFrame = CFrame.new(voidPos) * CFrame.Angles(0, math.rad(math.random(1, 360)), 0)
+                
                 teleportCount = teleportCount + 1
-                StatsText.Text = 'TP: '..tostring(teleportCount)..' | Defense: ACTIVE'
+                StatsText.Text = 'TP: '..tostring(teleportCount)..' | Void: ON'
             end
         end
     end)
-
-    -- [4. 本地端視角還原系統]
-    RunService:BindToRenderStep("VoidRestore", 199, function()
-        if not isActive then return end
-        local char = LocalPlayer.Character
-        if char and realCFrame then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then hrp.CFrame = realCFrame end
-        end
-    end)
     
-    -- [5. Anti-Explosion (爆炸自動拆除)]
+    -- [4. 智慧 Anti-Explosion (保留自身投擲物)]
     connections.Explosion = workspace.DescendantAdded:Connect(function(desc)
         if isActive and desc:IsA("Explosion") then
+            local currentChar = LocalPlayer.Character
+            local isOwn = false
+            
+            pcall(function()
+                if currentChar and desc:IsDescendantOf(currentChar) then isOwn = true end
+                
+                local creator = desc:FindFirstChild("creator") or (desc.Parent and desc.Parent:FindFirstChild("creator"))
+                if creator and creator:IsA("ObjectValue") and creator.Value == LocalPlayer then
+                    isOwn = true
+                end
+                
+                if desc.Parent and desc.Parent.Name == LocalPlayer.Name then isOwn = true end
+                
+                if desc.Parent and desc.Parent:IsA("Tool") and currentChar and desc.Parent:IsDescendantOf(currentChar) then
+                    isOwn = true
+                end
+            end)
+
+            if isOwn then return end
+            
             desc.BlastPressure = 0
             desc.BlastRadius = 0
             desc.Visible = false
@@ -198,10 +206,15 @@ local function StopEngine()
     ClearConnections()
     local char = LocalPlayer.Character
     if char then
-        -- 復原玩家零件大小
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        -- 將玩家從虛空傳送回開啟前的地圖位置
+        if hrp and savedCFrame then
+            hrp.CFrame = savedCFrame
+        end
+
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
-                part.Size = Vector3.new(1, 1, 1) -- 恢復基本大小
+                part.Size = Vector3.new(1, 1, 1)
                 if part.Name == "Head" then part.Transparency = 0 end
             end
         end
@@ -219,14 +232,14 @@ local isDebouncing = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = '● EXTREME ACTIVE'
+        StatusText.Text = '● IN THE VOID'
         StatusText.TextColor3 = Color3.fromRGB(0, 255, 150)
-        ToggleBtn.Text = 'STOP'
+        ToggleBtn.Text = 'RETURN'
         ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(150, 30, 30)
     else
-        StatusText.Text = '● SYSTEM IDLE'
+        StatusText.Text = '● ON THE MAP'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
-        ToggleBtn.Text = 'START'
+        ToggleBtn.Text = 'TO VOID'
         ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(100, 50, 255) or Color3.fromRGB(60, 30, 150)
     end
 end
@@ -246,4 +259,5 @@ end)
 LocalPlayer.CharacterAdded:Connect(function()
     task.delay(1, function() if isActive then StartEngine() end end)
 end)
+
 
