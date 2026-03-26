@@ -29,28 +29,9 @@ local function ForceCleanOldGUIs()
 end
 ForceCleanOldGUIs()
 
--- [ 狀態與記憶體 ]
 local isMasterActive = false
 local connections = {}
-local originalPhysicalProperties = {}
 local originalStates = {}
-local originalFallenHeight = Workspace.FallenPartsDestroyHeight
-local lastSafeCFrame = nil
-
-local originalSizes = setmetatable({}, {__mode = "k"})
-local originalProjSizes = setmetatable({}, {__mode = "k"})
-local myProjectiles = setmetatable({}, {__mode = "k"})
-
--- 肉體白名單 (確保能打出傷害)
-local coreBodyParts = {
-    ["HumanoidRootPart"] = true, ["Head"] = true, ["Torso"] = true, 
-    ["UpperTorso"] = true, ["LowerTorso"] = true, ["Left Arm"] = true, 
-    ["Right Arm"] = true, ["Left Leg"] = true, ["Right Leg"] = true, 
-    ["LeftUpperArm"] = true, ["RightUpperArm"] = true, ["LeftLowerArm"] = true, 
-    ["RightLowerArm"] = true, ["LeftUpperLeg"] = true, ["RightUpperLeg"] = true, 
-    ["LeftLowerLeg"] = true, ["RightLowerLeg"] = true, ["LeftFoot"] = true, 
-    ["RightFoot"] = true, ["LeftHand"] = true, ["RightHand"] = true
-}
 
 local function GetHRP()
     local char = LocalPlayer.Character
@@ -63,16 +44,16 @@ local function GetHum()
 end
 
 -- ==========================================
--- [ ★ 防卡死版：底層 Metatable 幻術 ★ ]
+-- [ ★ 修復版：安全 Metatable 攔截 ★ ]
 -- ==========================================
 local OldNamecall
 local OldNewIndex
 local OldIndex
 
 if hookmetamethod then
+    -- 攔截 Namecall (防止客戶端被踢或被強殺)
     OldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
         local method = getnamecallmethod()
-        -- 【防崩潰】確保傳入的是 Instance
         if isMasterActive and typeof(self) == "Instance" then
             if method == "Kick" or method == "kick" then
                 if self == LocalPlayer then return nil end
@@ -84,24 +65,27 @@ if hookmetamethod then
         return OldNamecall(self, ...)
     end)
 
+    -- 攔截 NewIndex (鎖死血量修改)
     OldNewIndex = hookmetamethod(game, "__newindex", function(self, key, value)
         if isMasterActive and not checkcaller() and typeof(self) == "Instance" then
             if key == "Health" and self:IsA("Humanoid") then
                 local char = LocalPlayer.Character
                 if char and self:IsDescendantOf(char) then
-                    return -- 鎖定血量寫入，維持 0 血狀態
+                    -- 拒絕寫入，維持 0 血量狀態
+                    return 
                 end
             end
         end
         return OldNewIndex(self, key, value)
     end)
 
+    -- 攔截 Index (修復無限遞迴卡死問題)
     OldIndex = hookmetamethod(game, "__index", function(self, key)
         if isMasterActive and not checkcaller() and typeof(self) == "Instance" then
             if self:IsA("Humanoid") then
                 local char = LocalPlayer.Character
                 if char and self:IsDescendantOf(char) then
-                    -- 【修復無限遞迴】使用 OldIndex 獲取 MaxHealth，防止 Stack Overflow
+                    -- 使用 OldIndex 獲取 MaxHealth，避免 self.MaxHealth 再次觸發 __index 造成當機
                     if key == "Health" then return OldIndex(self, "MaxHealth") end
                     if key == "Dead" then return false end
                 end
@@ -112,111 +96,37 @@ if hookmetamethod then
 end
 
 -- ==========================================
--- [ 效能優化版：敵人破甲與 Hitbox 處理 ]
--- ==========================================
-local function ProcessEnemyPart(part)
-    if not part:IsA("BasePart") or part.Name == "HumanoidRootPart" then return end
-    
-    if not coreBodyParts[part.Name] then
-        -- 剝奪背部盾牌、飾品、武器的空間判定
-        part.CanCollide = false
-        part.CanTouch = false
-        pcall(function() part.CanQuery = false end)
-        
-        if part.Parent:IsA("Accessory") or part.Parent:IsA("Tool") or part.Name:lower():match("shield") then
-            part.Transparency = 1
-            if part.Size.X > 0.1 then part.Size = Vector3.new(0.01, 0.01, 0.01) end
-        end
-    else
-        -- 保留肉體判定
-        part.CanTouch = true
-        pcall(function() part.CanQuery = true end)
-    end
-end
-
-local function ExpandEnemyHitbox(char)
-    if not char or char == LocalPlayer.Character then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    
-    if hrp then
-        if not originalSizes[hrp] then originalSizes[hrp] = hrp.Size end
-        hrp.Size = Vector3.new(60, 60, 60)
-        hrp.Transparency = 0.85
-        hrp.BrickColor = BrickColor.new("Bright red")
-        hrp.Material = Enum.Material.ForceField
-        hrp.CanCollide = false
-        hrp.CanTouch = true
-    end
-
-    for _, part in ipairs(char:GetDescendants()) do
-        ProcessEnemyPart(part)
-    end
-end
-
-local function ExpandToolHitbox(tool)
-    if tool:IsA("Tool") then
-        myProjectiles[tool] = true
-        for _, part in ipairs(tool:GetDescendants()) do
-            if part:IsA("BasePart") and part.Name == "Handle" then
-                if not originalProjSizes[part] then originalProjSizes[part] = part.Size end
-                part.Size = Vector3.new(60, 60, 60)
-                part.Transparency = 0.8
-                part.BrickColor = BrickColor.new("Cyan")
-                part.Material = Enum.Material.ForceField
-                part.Massless = true
-                part.CanCollide = false
-                part.CanTouch = true
-                pcall(function() part.CanQuery = true end)
-                myProjectiles[part] = true
-            end
-        end
-    end
-end
-
--- ==========================================
--- [ 玩家初始化：喪屍無敵 & 防禦套用 ]
+-- [ 啟動喪屍無敵機制 (Zombie Desync) ]
 -- ==========================================
 local function ApplyOneTimeSetups(char)
     if not char then return end
     local hum = char:WaitForChild("Humanoid", 3)
-    local hrp = char:WaitForChild("HumanoidRootPart", 3)
     
     if not isMasterActive then return end
 
-    if hrp then
-        pcall(function() sethiddenproperty(hrp, "NetworkIsSleeping", true) end)
-        lastSafeCFrame = hrp.CFrame
-    end
-
     if hum then
+        -- 1. 徹底關閉致死機制
         hum.BreakJointsOnDeath = false 
         hum.RequiresNeck = false       
         
         local badStates = {
             Enum.HumanoidStateType.Dead, Enum.HumanoidStateType.Ragdoll,
-            Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Physics,
-            Enum.HumanoidStateType.PlatformStanding, Enum.HumanoidStateType.Stunned,
-            Enum.HumanoidStateType.Seated
+            Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Physics
         }
         for _, s in ipairs(badStates) do
             if originalStates[s] == nil then originalStates[s] = hum:GetStateEnabled(s) end
             hum:SetStateEnabled(s, false)
         end
 
-        hum.Health = 0 -- 觸發 0 血量伺服器欺騙
-    end
-
-    connections.ToolEquip = char.ChildAdded:Connect(ExpandToolHitbox)
-    for _, tool in ipairs(char:GetChildren()) do
-        ExpandToolHitbox(tool)
+        -- 2. 觸發伺服器欺騙 (同步 0 血量給伺服器)
+        hum.Health = 0 
     end
 end
 
 LocalPlayer.CharacterAdded:Connect(function(char)
-    originalPhysicalProperties = {}
     if isMasterActive then
         task.spawn(function()
-            task.wait(0.2)
+            task.wait(0.5) -- 等待角色完全載入
             ApplyOneTimeSetups(char)
         end)
     end
@@ -248,13 +158,13 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = MainFrame
 
 local UIStroke = Instance.new('UIStroke')
-UIStroke.Color = Color3.fromRGB(170, 0, 255)
+UIStroke.Color = Color3.fromRGB(0, 255, 170)
 UIStroke.Thickness = 2
 UIStroke.Parent = MainFrame
 
 local TopBar = Instance.new('Frame')
 TopBar.Size = UDim2.new(1, 0, 0, 30)
-TopBar.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
+TopBar.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
 TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 8)
@@ -262,15 +172,15 @@ Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 8)
 local TopBarFix = Instance.new('Frame')
 TopBarFix.Size = UDim2.new(1, 0, 0, 10)
 TopBarFix.Position = UDim2.new(0, 0, 1, -10)
-TopBarFix.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
+TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
 TopBarFix.BorderSizePixel = 0
 TopBarFix.Parent = TopBar
 
 local Title = Instance.new('TextLabel')
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = '⚡ OBLIVION PROTOCOL V4'
-Title.TextColor3 = Color3.fromRGB(220, 180, 255)
+Title.Text = '🛡️ ZERO-HEALTH SYNC (FIXED)'
+Title.TextColor3 = Color3.fromRGB(180, 255, 220)
 Title.TextSize = 13
 Title.Font = Enum.Font.GothamBold
 Title.Parent = TopBar
@@ -278,9 +188,9 @@ Title.Parent = TopBar
 local MasterButton = Instance.new('TextButton')
 MasterButton.Size = UDim2.new(1, -20, 0, 45)
 MasterButton.Position = UDim2.new(0, 10, 0, 42)
-MasterButton.BackgroundColor3 = Color3.fromRGB(100, 0, 180)
+MasterButton.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
 MasterButton.BorderSizePixel = 0
-MasterButton.Text = 'ACTIVATE GOD MODE'
+MasterButton.Text = 'ACTIVATE DESYNC'
 MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MasterButton.TextSize = 13
 MasterButton.Font = Enum.Font.GothamBold
@@ -311,7 +221,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ==========================================
--- [ 核心邏輯：防卡死事件驅動迴圈 ]
+-- [ 狀態切換與極簡維持迴圈 ]
 -- ==========================================
 local function ToggleAll()
     isMasterActive = not isMasterActive
@@ -324,12 +234,12 @@ local function ToggleAll()
         TopBarFix.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
         Title.TextColor3 = Color3.fromRGB(255, 180, 180)
     else
-        MasterButton.Text = 'ACTIVATE GOD MODE'
-        MasterButton.BackgroundColor3 = Color3.fromRGB(100, 0, 180)
-        UIStroke.Color = Color3.fromRGB(170, 0, 255)
-        TopBar.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
-        TopBarFix.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
-        Title.TextColor3 = Color3.fromRGB(220, 180, 255)
+        MasterButton.Text = 'ACTIVATE DESYNC'
+        MasterButton.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
+        UIStroke.Color = Color3.fromRGB(0, 255, 170)
+        TopBar.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
+        TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
+        Title.TextColor3 = Color3.fromRGB(180, 255, 220)
     end
 
     for key, conn in pairs(connections) do
@@ -339,192 +249,27 @@ local function ToggleAll()
 
     if isMasterActive then
         ApplyOneTimeSetups(LocalPlayer.Character)
-        pcall(function() Workspace.FallenPartsDestroyHeight = -9e9 end)
 
-        -- 1. 輕量化反傳送與反虛空 (RenderStepped 專門處理本體 CFrame)
-        connections.AntiBring = RunService.RenderStepped:Connect(function()
-            local hrp = GetHRP()
-            if hrp then
-                if lastSafeCFrame then
-                    local distance = (hrp.Position - lastSafeCFrame.Position).Magnitude
-                    if hrp.Position.Y < -500 then
-                        hrp.CFrame = lastSafeCFrame + Vector3.new(0, 50, 0)
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                    elseif distance > 150 then
-                        hrp.CFrame = lastSafeCFrame
-                        hrp.AssemblyLinearVelocity = Vector3.zero
-                    else
-                        lastSafeCFrame = hrp.CFrame
-                    end
-                else
-                    lastSafeCFrame = hrp.CFrame
-                end
-                if hrp.Anchored then hrp.Anchored = false end
-            end
-        end)
-
-        -- 2. 物理領域 (限制頻率，每 0.1 秒執行一次，不再卡死)
-        local lastPhysicsUpdate = 0
-        connections.PhysicsStepped = RunService.Stepped:Connect(function()
-            local char = LocalPlayer.Character
-            local hrp = char and char:FindFirstChild('HumanoidRootPart')
-
-            if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        if not originalPhysicalProperties[part] then
-                            originalPhysicalProperties[part] = part.CustomPhysicalProperties
-                        end
-                        part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0, 0, math.huge, math.huge)
-                        part.CanCollide = false
-                        part.Massless = true
-                        
-                        if part:FindFirstAncestorOfClass("Tool") or part.Name:match("Hand") or part.Name:match("Arm") then
-                            part.CanTouch = true
-                            pcall(function() part.CanQuery = true end)
-                        else
-                            part.CanTouch = false
-                            pcall(function() part.CanQuery = false end)
-                        end
-                    end
-                end
-                
-                -- 【防卡死優化】反 Fling 領域限流
-                if hrp and (tick() - lastPhysicsUpdate > 0.1) then
-                    lastPhysicsUpdate = tick()
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                    
-                    local nearbyParts = Workspace:GetPartBoundsInRadius(hrp.Position, 45)
-                    for _, part in ipairs(nearbyParts) do
-                        if part:IsA("BasePart") and not part:IsDescendantOf(char) and not part.Anchored then
-                            if not myProjectiles[part] and not myProjectiles[part.Parent] then
-                                part.AssemblyLinearVelocity = Vector3.zero
-                                part.AssemblyAngularVelocity = Vector3.zero
-                                part.CanCollide = false
-                                part.CanTouch = false
-                                pcall(function() part.CanQuery = false end)
-                                pcall(function() part.CFrame = CFrame.new(0, -99999, 0) end)
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-
-        -- 3. 極簡狀態維持 (維持 0 血量與拔除異常控制)
+        -- 極輕量化的監聽：只負責維持自己的 0 血量，不做其他多餘運算
         connections.MaintainZombie = RunService.Heartbeat:Connect(function()
-            local char = LocalPlayer.Character
-            if char then
-                local hum = char:FindFirstChild('Humanoid')
-                local hrp = char:FindFirstChild('HumanoidRootPart')
-                if hum then
-                    if hum.Health > 0 then hum.Health = 0 end
-                    if hum.Sit then hum.Sit = false end
-                    if hum.PlatformStand then hum.PlatformStand = false end
-                end
-                
-                if hrp then
-                    for _, v in ipairs(hrp:GetChildren()) do
-                        if v:IsA("BodyModifier") or v:IsA("BodyPosition") or v:IsA("BodyVelocity") or v:IsA("BodyGyro") or v:IsA("AngularVelocity") or v:IsA("LinearVelocity") or v:IsA("RocketPropulsion") then
-                            v:Destroy()
-                        end
-                    end
-                end
+            local hum = GetHum()
+            if hum and hum.Health > 0 then
+                hum.Health = 0
             end
         end)
-
-        -- 4. 事件驅動：處理場上現有玩家 (單次執行)
-        for _, obj in ipairs(Workspace:GetChildren()) do
-            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then ExpandEnemyHitbox(obj) end
-        end
-
-        -- 5. 事件驅動：監聽新加入的物體 (取代全域迴圈掃描，效能巨幅提升)
-        connections.WorldMonitor = Workspace.DescendantAdded:Connect(function(obj)
-            if not isMasterActive then return end
-            
-            if obj:IsA("Explosion") or obj:IsA("TouchTransmitter") then
-                task.defer(function() pcall(function() obj:Destroy() end) end)
-                return
-            end
-            
-            if obj:IsA("Model") then
-                task.delay(0.5, function()
-                    if obj and obj.Parent and obj:FindFirstChild("Humanoid") then ExpandEnemyHitbox(obj) end
-                end)
-            end
-            
-            -- 動態剝奪敵方新生成的裝備
-            if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") and obj.Parent ~= LocalPlayer.Character then
-                if obj.Parent:FindFirstChild("Humanoid") then
-                    ProcessEnemyPart(obj)
-                end
-            end
-        end)
-
-        connections.NewPlayer = Players.PlayerAdded:Connect(function(plr)
-            connections["Plr_"..plr.Name] = plr.CharacterAdded:Connect(function(char)
-                task.delay(0.5, function() ExpandEnemyHitbox(char) end)
-            end)
-        end)
-
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer then
-                connections["Plr_"..plr.Name] = plr.CharacterAdded:Connect(function(char)
-                    task.delay(0.5, function() ExpandEnemyHitbox(char) end)
-                end)
-            end
-        end
 
     else
-        -- 關閉時還原所有狀態
-        local char = LocalPlayer.Character
         local hum = GetHum()
         
-        pcall(function() Workspace.FallenPartsDestroyHeight = originalFallenHeight end)
-
         if hum then
             hum.RequiresNeck = true
             hum.BreakJointsOnDeath = true
             for stateType, isEnabled in pairs(originalStates) do
                 hum:SetStateEnabled(stateType, isEnabled)
             end
-            hum.Health = hum.MaxHealth
+            hum.Health = hum.MaxHealth -- 恢復滿血
         end
-
-        if char then
-            for part, props in pairs(originalPhysicalProperties) do
-                if part and part.Parent then part.CustomPhysicalProperties = props end
-            end
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then 
-                    part.CanTouch = true 
-                    pcall(function() part.CanQuery = true end)
-                end
-            end
-        end
-
-        for part, size in pairs(originalSizes) do
-            if part and part.Parent then
-                part.Size = size
-                part.Transparency = 1
-                part.Material = Enum.Material.Plastic
-            end
-        end
-        for part, size in pairs(originalProjSizes) do
-            if part and part.Parent then
-                part.Size = size
-                part.Transparency = 0 
-                part.Material = Enum.Material.Plastic
-            end
-        end
-
-        originalPhysicalProperties = {}
         originalStates = {}
-        originalSizes = setmetatable({}, {__mode = "k"})
-        originalProjSizes = setmetatable({}, {__mode = "k"})
-        myProjectiles = setmetatable({}, {__mode = "k"})
-        lastSafeCFrame = nil
     end
 end
 
