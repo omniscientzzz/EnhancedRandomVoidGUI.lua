@@ -1,198 +1,393 @@
 local fenv = getfenv()
 fenv.require = function() end
 
-local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
 local UserInputService = game:GetService('UserInputService')
+local CoreGui = game:GetService('CoreGui')
 local LocalPlayer = Players.LocalPlayer
 
 -- ==========================================
--- [ 清除舊版 GUI ]
+-- [ 清理舊版 UI ]
 -- ==========================================
 local function ForceCleanOldGUIs()
-    for _, guiName in ipairs({'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI', 'AegisGUI', 'ZeroLagGUI'}) do
+    local guiNames = {'VoidGUI', 'UltimateVoidGUI', 'AegisShieldGUI', 'V8GodModeGUI', 'V8OmnipotentGUI'}
+    for _, guiName in ipairs(guiNames) do
         pcall(function()
             local pg = LocalPlayer:FindFirstChild("PlayerGui")
             if pg and pg:FindFirstChild(guiName) then pg[guiName]:Destroy() end
-            local cg = game:GetService("CoreGui")
-            if cg and cg:FindFirstChild(guiName) then cg[guiName]:Destroy() end
+            if CoreGui:FindFirstChild(guiName) then CoreGui[guiName]:Destroy() end
         end)
     end
 end
 ForceCleanOldGUIs()
 
--- [ 狀態與記憶體 ]
-local isMasterActive = false
+-- ==========================================
+-- [ 全域狀態變數 ]
+-- ==========================================
+local Flags = {
+    V8Defense = false,
+    GodMode = false,
+    AntiExplosion = false,
+    AntiRemote = false,
+    AntiFling = false,
+    AntiState = false,
+    Hitbox = false,
+    ESP = false
+}
+
 local connections = {}
-local originalEnemySizes = {}
-local originalPhysicalProps = {}
-local originalStates = {}
-local myForceField = nil
+local espHighlights = {}
 
 -- ==========================================
--- [ 極簡 Hitbox 邏輯 ]
+-- [ 模組 1: V8 欺騙防禦 (CFrame 亂數擾亂) ]
 -- ==========================================
-local function ExpandEnemyHitbox(char)
-    if not char or char == LocalPlayer.Character then return end
-    local hrp = char:WaitForChild("HumanoidRootPart", 3)
-    if not hrp then return end
-    
-    if not originalEnemySizes[hrp] then originalEnemySizes[hrp] = hrp.Size end
-    
-    hrp.Size = Vector3.new(60, 60, 60)
-    hrp.Transparency = 0.8
-    hrp.BrickColor = BrickColor.new("Bright red")
-    hrp.Material = Enum.Material.ForceField
-    hrp.CanCollide = false
-end
+local function ToggleV8Defense(state)
+    Flags.V8Defense = state
+    if connections.V8Spoof then connections.V8Spoof:Disconnect() end
+    if connections.V8Render then connections.V8Render:Disconnect() end
 
-local function RestoreEnemyHitboxes()
-    for hrp, size in pairs(originalEnemySizes) do
-        if hrp and hrp.Parent then hrp.Size = size hrp.Transparency = 1 end
-    end
-    originalEnemySizes = {}
-end
+    if state then
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:WaitForChild("HumanoidRootPart", 3)
+        if not hrp then return end
 
--- ==========================================
--- [ 核心防禦：幽靈觸碰與無限質量 ]
--- ==========================================
-local function ApplyPartPhysics(part)
-    if not part:IsA("BasePart") then return end
-    if not originalPhysicalProps[part] then
-        originalPhysicalProps[part] = { Prop = part.CustomPhysicalProperties, Touch = part.CanTouch }
-    end
-    
-    part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0, 0, math.huge, math.huge)
-    part.Massless = true
-    
-    if not part:FindFirstAncestorOfClass("Tool") then
-        part.CanTouch = false
+        local realCFrame = hrp.CFrame
+        connections.V8Spoof = RunService.Heartbeat:Connect(function()
+            if not hrp or not hrp.Parent then return end
+            realCFrame = hrp.CFrame
+            hrp.CFrame = hrp.CFrame + Vector3.new(math.random(-250, 250), math.random(50, 300), math.random(-250, 250))
+            hrp.AssemblyLinearVelocity = Vector3.new(math.random(-9999, 9999), math.random(-9999, 9999), math.random(-9999, 9999))
+        end)
+        connections.V8Render = RunService.RenderStepped:Connect(function()
+            if not hrp or not hrp.Parent then return end
+            hrp.CFrame = realCFrame
+        end)
     end
 end
 
 -- ==========================================
--- [ Anti-Remote Kill (事件驅動，零延遲) ]
+-- [ 模組 2: V8 絕對無敵 (十萬米高空解同步) ]
 -- ==========================================
-local function ApplyAntiKill(char)
-    local hum = char:WaitForChild("Humanoid", 3)
-    local hrp = char:WaitForChild("HumanoidRootPart", 3)
-    if not hum or not hrp then return end
+local function ToggleGodMode(state)
+    Flags.GodMode = state
+    if connections.GodSpoof then connections.GodSpoof:Disconnect() end
+    if connections.GodRender then connections.GodRender:Disconnect() end
 
-    -- 1. 瞬間鎖血 (取代無限迴圈，只有扣血時觸發，效能極佳)
-    connections.HealthLock = hum:GetPropertyChangedSignal("Health"):Connect(function()
-        if isMasterActive and hum.Health < hum.MaxHealth and hum.Health > 0 then
-            hum.Health = hum.MaxHealth
+    if state then
+        if Flags.V8Defense then ToggleV8Defense(false) end
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:WaitForChild("HumanoidRootPart", 3)
+        local hum = char:WaitForChild("Humanoid", 3)
+        if not hrp or not hum then return end
+
+        pcall(function()
+            hum.BreakJointsOnDeath = false
+            hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+        end)
+
+        local originalCFrame = hrp.CFrame
+        connections.GodSpoof = RunService.Heartbeat:Connect(function()
+            if not hrp or not hrp.Parent then return end
+            originalCFrame = hrp.CFrame
+            hrp.CFrame = CFrame.new(0, 999999, 0)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end)
+        connections.GodRender = RunService.RenderStepped:Connect(function()
+            if not hrp or not hrp.Parent then return end
+            hrp.CFrame = originalCFrame
+        end)
+    else
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
         end
-    end)
-
-    -- 2. 免疫遠程處決狀態
-    hum.BreakJointsOnDeath = false 
-    hum.RequiresNeck = false       
-    local badStates = {
-        Enum.HumanoidStateType.Dead, Enum.HumanoidStateType.Ragdoll,
-        Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Stunned
-    }
-    for _, s in ipairs(badStates) do
-        if originalStates[s] == nil then pcall(function() originalStates[s] = hum:GetStateEnabled(s) end) end
-        pcall(function() hum:SetStateEnabled(s, false) end)
+        if Flags.V8Defense then ToggleV8Defense(true) end
     end
-
-    -- 3. 反外掛強制綁定 (Anti-Attach/Bring)
-    connections.AntiAttach = char.DescendantAdded:Connect(function(desc)
-        if not isMasterActive then return end
-        if desc:IsA("BodyVelocity") or desc:IsA("BodyPosition") or desc:IsA("RocketPropulsion") or desc:IsA("WeldConstraint") then
-            -- 如果外掛試圖把異常推力或綁定物放在你的根部位，瞬間銷毀
-            if desc.Parent == hrp then
-                task.defer(function() pcall(function() desc:Destroy() end) end)
-            end
-        end
-    end)
-end
-
-local function ApplyAegisMode(char)
-    if not char then return end
-    if not isMasterActive then return end
-
-    if not myForceField or not myForceField.Parent then
-        myForceField = Instance.new("ForceField")
-        myForceField.Visible = false
-        myForceField.Parent = char
-    end
-
-    ApplyAntiKill(char)
-
-    for _, part in ipairs(char:GetDescendants()) do ApplyPartPhysics(part) end
-    connections.CharDescendant = char.DescendantAdded:Connect(ApplyPartPhysics)
 end
 
 -- ==========================================
--- [ UI 介面設定 ]
+-- [ 模組 3: 防爆裝甲 (Anti-Explosion) ]
 -- ==========================================
-local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'ZeroLagGUI'
-ScreenGui.ResetOnSpawn = false
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.DisplayOrder = 999999
-pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
-if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
-
-local MainFrame = Instance.new('Frame')
-MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 260, 0, 100)
-MainFrame.Position = UDim2.new(0.5, -130, 0.5, -50)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Parent = ScreenGui
-Instance.new('UICorner', MainFrame).CornerRadius = UDim.new(0, 6)
-
-local UIStroke = Instance.new('UIStroke')
-UIStroke.Color = Color3.fromRGB(0, 255, 150)
-UIStroke.Thickness = 2
-UIStroke.Parent = MainFrame
-
-local TopBar = Instance.new('Frame')
-TopBar.Size = UDim2.new(1, 0, 0, 25)
-TopBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-TopBar.BorderSizePixel = 0
-TopBar.Parent = MainFrame
-Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 6)
-
-local Title = Instance.new('TextLabel')
-Title.Size = UDim2.new(1, 0, 1, 0)
-Title.BackgroundTransparency = 1
-Title.Text = '⚡ V7.1 ZERO-LAG (Anti-Explosion)'
-Title.TextColor3 = Color3.fromRGB(150, 255, 200)
-Title.TextSize = 12
-Title.Font = Enum.Font.GothamBold
-Title.Parent = TopBar
-
-local MasterButton = Instance.new('TextButton')
-MasterButton.Size = UDim2.new(1, -20, 0, 45)
-MasterButton.Position = UDim2.new(0, 10, 0, 40)
-MasterButton.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
-MasterButton.BorderSizePixel = 0
-MasterButton.Text = 'ACTIVATE DEFENSE'
-MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-MasterButton.TextSize = 14
-MasterButton.Font = Enum.Font.GothamBold
-MasterButton.Parent = MainFrame
-Instance.new('UICorner', MasterButton).CornerRadius = UDim.new(0, 6)
-
--- 拖曳功能
-local dragging, dragInput, dragStart, startPos
-TopBar.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+-- 攔截並無效化所有生成的爆炸物件
+workspace.DescendantAdded:Connect(function(desc)
+    if Flags.AntiExplosion and desc:IsA("Explosion") then
+        pcall(function()
+            desc.BlastPressure = 0
+            desc.BlastRadius = 0
+            desc.DestroyJointRadiusPercent = 0
+            desc.ExplosionType = Enum.ExplosionType.NoCraters
+            task.defer(function() desc:Destroy() end)
         end)
     end
 end)
-TopBar.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+
+-- ==========================================
+-- [ 模組 4: 防遠程擊殺與防踢 (Anti-Remote/Kick) ]
+-- ==========================================
+-- 使用 metatable 攔截危險的 RemoteEvents 和 Client Kick
+pcall(function()
+    local gm = getrawmetatable(game)
+    if gm then
+        setreadonly(gm, false)
+        local oldNamecall = gm.__namecall
+        gm.__namecall = newcclosure(function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+            if Flags.AntiRemote then
+                -- 攔截本地防作弊 Kick
+                if method == "Kick" or method == "kick" then
+                    return
+                end
+                -- 攔截伺服器濫用的擊殺/封禁 Remote
+                if (method == "FireServer" or method == "InvokeServer") and self.Name then
+                    local name = string.lower(self.Name)
+                    if name:find("kill") or name:find("ban") or name:find("kick") or name:find("crash") or name:find("punish") then
+                        return -- 靜默攔截
+                    end
+                end
+            end
+            return oldNamecall(self, unpack(args))
+        end)
+        setreadonly(gm, true)
+    end
+end)
+
+-- ==========================================
+-- [ 模組 5: 物理防禦 (Anti-Fling & 碰撞免疫) ]
+-- ==========================================
+RunService.Stepped:Connect(function()
+    if Flags.AntiFling then
+        -- 關閉與其他玩家的碰撞，防止被推擠或 Fling 飛天
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                for _, part in ipairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end
+        -- 限制自身異常速度，防止被伺服器物理引擎彈飛
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            local hrp = char.HumanoidRootPart
+            if hrp.AssemblyLinearVelocity.Magnitude > 300 or hrp.AssemblyAngularVelocity.Magnitude > 300 then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- [ 模組 6: 狀態免疫 (Anti-Void & Anti-Sit) ]
+-- ==========================================
+RunService.Heartbeat:Connect(function()
+    if Flags.AntiState then
+        local char = LocalPlayer.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChild("Humanoid")
+            
+            -- 防墜落死亡 (自動彈回地面)
+            if hrp and hrp.Position.Y < (workspace.FallenPartsDestroyHeight + 50) then
+                hrp.CFrame = hrp.CFrame + Vector3.new(0, 500, 0)
+                hrp.AssemblyLinearVelocity = Vector3.zero
+            end
+            
+            -- 防止被強制坐下、摔倒或布娃娃狀態
+            if hum then
+                if hum.Sit then hum.Sit = false end
+                if hum.PlatformStand then hum.PlatformStand = false end
+                hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                hum:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- [ 模組 7: 致命打擊 (Hitbox) ]
+-- ==========================================
+task.spawn(function()
+    while task.wait(0.5) do
+        if Flags.Hitbox then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    if player.Team ~= LocalPlayer.Team or player.Team == nil then
+                        local enemyHrp = player.Character.HumanoidRootPart
+                        pcall(function()
+                            enemyHrp.Size = Vector3.new(25, 25, 25)
+                            enemyHrp.Transparency = 0.7
+                            enemyHrp.BrickColor = BrickColor.new("Really red")
+                            enemyHrp.Material = Enum.Material.ForceField
+                            enemyHrp.CanCollide = false
+                        end)
+                    end
+                end
+            end
+        else
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                    local enemyHrp = player.Character.HumanoidRootPart
+                    if enemyHrp.Size.X > 5 then
+                        pcall(function()
+                            enemyHrp.Size = Vector3.new(2, 2, 1)
+                            enemyHrp.Transparency = 1
+                        end)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- [ 模組 8: 戰術透視 (ESP) ]
+-- ==========================================
+local function UpdateESP()
+    for _, hl in pairs(espHighlights) do if hl then hl:Destroy() end end
+    table.clear(espHighlights)
+    if Flags.ESP then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                if player.Team ~= LocalPlayer.Team or player.Team == nil then
+                    local hl = Instance.new("Highlight")
+                    hl.Adornee = player.Character
+                    hl.FillColor = Color3.fromRGB(255, 0, 50)
+                    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    hl.FillTransparency = 0.5
+                    hl.OutlineTransparency = 0.1
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = CoreGui
+                    table.insert(espHighlights, hl)
+                end
+            end
+        end
+    end
+end
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function() task.wait(1); if Flags.ESP then UpdateESP() end end)
+end)
+for _, player in ipairs(Players:GetPlayers()) do
+    player.CharacterAdded:Connect(function() task.wait(1); if Flags.ESP then UpdateESP() end end)
+end
+
+-- ==========================================
+-- [ 全新滾動式 UI 介面設計 (V8 OMNIPOTENT) ]
+-- ==========================================
+local ScreenGui = Instance.new('ScreenGui')
+ScreenGui.Name = 'V8OmnipotentGUI'
+ScreenGui.ResetOnSpawn = false
+pcall(function() ScreenGui.Parent = CoreGui end)
+if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local MainFrame = Instance.new('Frame')
+MainFrame.Size = UDim2.new(0, 280, 0, 320)
+MainFrame.Position = UDim2.new(0.5, -140, 0.5, -160)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Parent = ScreenGui
+Instance.new('UICorner', MainFrame).CornerRadius = UDim.new(0, 8)
+
+local UIStroke = Instance.new('UIStroke')
+UIStroke.Color = Color3.fromRGB(100, 50, 255)
+UIStroke.Thickness = 2
+UIStroke.Parent = MainFrame
+
+local Title = Instance.new('TextLabel')
+Title.Size = UDim2.new(1, 0, 0, 35)
+Title.BackgroundTransparency = 1
+Title.Text = '⚡ V8 OMNIPOTENT 終極防禦 ⚡'
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 14
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+
+local ScrollFrame = Instance.new('ScrollingFrame')
+ScrollFrame.Size = UDim2.new(1, -10, 1, -65)
+ScrollFrame.Position = UDim2.new(0, 5, 0, 35)
+ScrollFrame.BackgroundTransparency = 1
+ScrollFrame.ScrollBarThickness = 4
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 355)
+ScrollFrame.Parent = MainFrame
+
+local ListLayout = Instance.new('UIListLayout', ScrollFrame)
+ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ListLayout.Padding = UDim.new(0, 8)
+ListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+
+local function CreateToggleButton(text, layoutOrder, flagKey, activeColor)
+    local btn = Instance.new('TextButton')
+    btn.Size = UDim2.new(1, -15, 0, 36)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+    btn.Font = Enum.Font.GothamSemibold
+    btn.TextSize = 12
+    btn.LayoutOrder = layoutOrder
+    btn.Parent = ScrollFrame
+    Instance.new('UICorner', btn).CornerRadius = UDim.new(0, 6)
+    
+    local stroke = Instance.new('UIStroke', btn)
+    stroke.Color = Color3.fromRGB(40, 40, 50)
+    
+    btn.MouseButton1Click:Connect(function()
+        Flags[flagKey] = not Flags[flagKey]
+        if Flags[flagKey] then
+            btn.BackgroundColor3 = activeColor
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            stroke.Color = activeColor
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+            btn.TextColor3 = Color3.fromRGB(200, 200, 200)
+            stroke.Color = Color3.fromRGB(40, 40, 50)
+        end
+
+        if flagKey == "V8Defense" and not Flags.GodMode then ToggleV8Defense(Flags.V8Defense)
+        elseif flagKey == "GodMode" then ToggleGodMode(Flags.GodMode)
+        elseif flagKey == "ESP" then UpdateESP() end
+    end)
+end
+
+-- ==========================================
+-- [ 建立按鈕清單 ]
+-- ==========================================
+CreateToggleButton('🛡️ V8 欺騙防禦 (CFrame亂數防預判)', 1, "V8Defense", Color3.fromRGB(0, 150, 255))
+CreateToggleButton('👼 V8 絕對無敵 (十萬米高空解同步)', 2, "GodMode", Color3.fromRGB(255, 215, 0))
+CreateToggleButton('💣 防爆裝甲 (無效化爆炸範圍/傷害)', 3, "AntiExplosion", Color3.fromRGB(255, 100, 0))
+CreateToggleButton('🚫 防遠程擊殺/踢出 (攔截底層代碼)', 4, "AntiRemote", Color3.fromRGB(200, 0, 50))
+CreateToggleButton('🧱 物理防禦 (免疫推擠與Fling飛天)', 5, "AntiFling", Color3.fromRGB(0, 200, 150))
+CreateToggleButton('🛑 狀態免疫 (防墜落死/防坐下倒地)', 6, "AntiState", Color3.fromRGB(50, 150, 150))
+CreateToggleButton('⚔️ 致命打擊 (無延遲大判定)', 7, "Hitbox", Color3.fromRGB(220, 20, 60))
+CreateToggleButton('👁️ 戰術透視 (順暢原生ESP)', 8, "ESP", Color3.fromRGB(150, 50, 255))
+
+local Tip = Instance.new('TextLabel')
+Tip.Size = UDim2.new(1, 0, 0, 20)
+Tip.Position = UDim2.new(0, 0, 1, -25)
+Tip.BackgroundTransparency = 1
+Tip.Text = '[Right Shift] 隱藏/顯示選單'
+Tip.TextColor3 = Color3.fromRGB(120, 120, 120)
+Tip.TextSize = 10
+Tip.Font = Enum.Font.Gotham
+Tip.Parent = MainFrame
+
+-- UI 拖曳功能
+local dragging, dragInput, dragStart, startPos
+Title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true; dragStart = input.Position; startPos = MainFrame.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+    end
+end)
+Title.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
 end)
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
@@ -201,117 +396,16 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- ==========================================
--- [ 核心啟動邏輯 ]
--- ==========================================
-local function ToggleAll()
-    isMasterActive = not isMasterActive
-
-    if isMasterActive then
-        MasterButton.Text = 'DEACTIVATE'
-        MasterButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-        UIStroke.Color = Color3.fromRGB(255, 100, 100)
-        
-        ApplyAegisMode(LocalPlayer.Character)
-        connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function(char)
-            task.delay(0.5, function() ApplyAegisMode(char) end)
-        end)
-
-        -- [ Anti-Explosion (反爆炸 - 事件驅動) ]
-        -- 不掃描地圖，只有當新物件生成時檢查是否為爆炸物
-        connections.AntiExplode = workspace.DescendantAdded:Connect(function(desc)
-            if desc:IsA("Explosion") then
-                -- 瞬間瓦解爆炸威力，防止被炸飛或秒殺
-                desc.BlastPressure = 0
-                desc.BlastRadius = 0
-                desc.DestroyJointRadiusPercent = 0
-                desc.Visible = false
-                task.defer(function() pcall(function() desc:Destroy() end) end)
-            end
-        end)
-
-        -- 基礎維護迴圈 (處理物理狀態)
-        connections.FastLoop = RunService.Heartbeat:Connect(function()
-            local char = LocalPlayer.Character
-            if not char then return end
-            
-            local hrp = char:FindFirstChild('HumanoidRootPart')
-            local hum = char:FindFirstChild('Humanoid')
-
-            if hum then
-                if hum.Sit then hum.Sit = false end
-                if hum.PlatformStand then hum.PlatformStand = false end
-            end
-
-            if hrp then
-                -- 反虛空 (Anti-Void)
-                if hrp.Position.Y < -300 then
-                    hrp.CFrame = hrp.CFrame + Vector3.new(0, 400, 0)
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                end
-                
-                -- Anti-NaN Crash (防止伺服器發送無效座標導致遊戲閃退)
-                if hrp.AssemblyLinearVelocity.X ~= hrp.AssemblyLinearVelocity.X then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                end
-
-                -- 反異常擊飛 (Anti-Fling)
-                if hrp.AssemblyAngularVelocity.Magnitude > 50 or hrp.AssemblyLinearVelocity.Magnitude > 250 then
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                end
-            end
-        end)
-
-        -- Hitbox 放大
-        for _, plr in ipairs(Players:GetPlayers()) do ExpandEnemyHitbox(plr.Character) end
-        connections.PlayerAdded = Players.PlayerAdded:Connect(function(plr)
-            connections["Plr_"..plr.Name] = plr.CharacterAdded:Connect(function(char)
-                task.delay(1, function() ExpandEnemyHitbox(char) end)
-            end)
-        end)
-
-    else
-        -- 關閉與還原
-        MasterButton.Text = 'ACTIVATE DEFENSE'
-        MasterButton.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
-        UIStroke.Color = Color3.fromRGB(0, 255, 150)
-
-        for key, conn in pairs(connections) do
-            if conn then conn:Disconnect() end
-        end
-        connections = {}
-        RestoreEnemyHitboxes()
-
-        local char = LocalPlayer.Character
-        if myForceField then myForceField:Destroy() myForceField = nil end
-
-        if char then
-            local hum = char:FindFirstChild("Humanoid")
-            if hum then
-                hum.RequiresNeck = true
-                hum.BreakJointsOnDeath = true
-                for stateType, isEnabled in pairs(originalStates) do
-                    pcall(function() hum:SetStateEnabled(stateType, isEnabled) end)
-                end
-            end
-            for part, data in pairs(originalPhysicalProps) do
-                if part and part.Parent then 
-                    part.CustomPhysicalProperties = data.Prop 
-                    part.CanTouch = data.Touch
-                end
-            end
-        end
-
-        originalPhysicalProps = {}
-        originalStates = {}
-    end
-end
-
-MasterButton.MouseButton1Click:Connect(ToggleAll)
-
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and input.KeyCode == Enum.KeyCode.RightShift then
         MainFrame.Visible = not MainFrame.Visible
     end
+end)
+
+-- 角色重生時自動恢復部分狀態防禦
+LocalPlayer.CharacterAdded:Connect(function()
+    task.delay(1, function()
+        if Flags.GodMode then ToggleGodMode(true)
+        elseif Flags.V8Defense then ToggleV8Defense(true) end
+    end)
 end)
