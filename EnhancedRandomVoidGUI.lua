@@ -456,6 +456,7 @@ local function ToggleAll()
                                 obj.Material = Enum.Material.ForceField
                                 obj.CanCollide = false
                                 obj.CanTouch = true -- 確保有傷害
+                                pcall(function() obj.CanQuery = true end)
                                 obj.Massless = true
                             end
                         end
