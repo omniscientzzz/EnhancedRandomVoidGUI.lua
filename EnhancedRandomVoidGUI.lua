@@ -40,9 +40,10 @@ local originalStates = {}
 local originalFallenHeight = Workspace.FallenPartsDestroyHeight
 local lastSafeCFrame = nil
 
--- 新增：Hitbox 還原用記憶體 (使用弱引用避免內存洩漏)
+-- 新增：Hitbox 還原與白名單記憶體 (使用弱引用避免內存洩漏)
 local originalSizes = setmetatable({}, {__mode = "k"})
 local originalProjSizes = setmetatable({}, {__mode = "k"})
+local myProjectiles = setmetatable({}, {__mode = "k"}) -- 【新】我方投擲物/武器白名單
 
 -- [ 輔助函數 ] --
 local function GetHRP()
@@ -56,33 +57,46 @@ local function GetHum()
 end
 
 -- ==========================================
--- [ 新增：極限 Hitbox 擴張函數 ]
+-- [ 修正：安全極限 Hitbox 擴張 & 絕對破甲 ]
 -- ==========================================
 local function ExpandEnemyHitbox(char)
     if not char or char == LocalPlayer.Character then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
+    
     if hrp then
         if not originalSizes[hrp] then originalSizes[hrp] = hrp.Size end
-        -- 將敵人的 Hitbox 放大到極限，並顯示為半透明紅色方便瞄準
-        hrp.Size = Vector3.new(2048, 2048, 2048)
+        -- 修正：將尺寸改為 60。2048 過大會導致 Roblox 物理引擎放棄計算 Touch 事件
+        hrp.Size = Vector3.new(60, 60, 60)
         hrp.Transparency = 0.85
         hrp.BrickColor = BrickColor.new("Bright red")
         hrp.Material = Enum.Material.ForceField
         hrp.CanCollide = false
+        hrp.CanTouch = true -- 核心必須可以被傷害
+    end
+
+    -- 【絕對破甲】剝奪敵人身上所有的裝備、盾牌、武器的碰撞與觸碰
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            part.CanCollide = false
+            part.CanTouch = false
+        end
     end
 end
 
 local function ExpandToolHitbox(tool)
     if tool:IsA("Tool") then
+        myProjectiles[tool] = true -- 將武器加入白名單
         for _, part in ipairs(tool:GetDescendants()) do
             if part:IsA("BasePart") and part.Name == "Handle" then
                 if not originalProjSizes[part] then originalProjSizes[part] = part.Size end
-                part.Size = Vector3.new(2048, 2048, 2048)
+                part.Size = Vector3.new(60, 60, 60)
                 part.Transparency = 0.8
                 part.BrickColor = BrickColor.new("Cyan")
                 part.Material = Enum.Material.ForceField
                 part.Massless = true
                 part.CanCollide = false
+                part.CanTouch = true -- 【穿透機制】確保我們武器保有傷害
+                myProjectiles[part] = true -- 零件也加入白名單
             end
         end
     end
@@ -100,9 +114,7 @@ local function ApplyOneTimeSetups(char)
 
     -- [ 防禦 1：網路休眠 (隱身於物理演算) ]
     if hrp then
-        pcall(function()
-            sethiddenproperty(hrp, "NetworkIsSleeping", true)
-        end)
+        pcall(function() sethiddenproperty(hrp, "NetworkIsSleeping", true) end)
         lastSafeCFrame = hrp.CFrame
     end
 
@@ -121,23 +133,18 @@ local function ApplyOneTimeSetups(char)
         end)
 
         local badStates = {
-            Enum.HumanoidStateType.Dead,
-            Enum.HumanoidStateType.Ragdoll,
-            Enum.HumanoidStateType.FallingDown,
-            Enum.HumanoidStateType.Physics,
-            Enum.HumanoidStateType.PlatformStanding,
-            Enum.HumanoidStateType.Stunned,
+            Enum.HumanoidStateType.Dead, Enum.HumanoidStateType.Ragdoll,
+            Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Physics,
+            Enum.HumanoidStateType.PlatformStanding, Enum.HumanoidStateType.Stunned,
             Enum.HumanoidStateType.Seated
         }
         for _, s in ipairs(badStates) do
-            if originalStates[s] == nil then
-                originalStates[s] = hum:GetStateEnabled(s)
-            end
+            if originalStates[s] == nil then originalStates[s] = hum:GetStateEnabled(s) end
             hum:SetStateEnabled(s, false)
         end
     end
 
-    -- 裝備武器時自動放大武器判定
+    -- 裝備武器時自動放大武器判定並加入白名單
     connections.ToolEquip = char.ChildAdded:Connect(ExpandToolHitbox)
     for _, tool in ipairs(char:GetChildren()) do
         ExpandToolHitbox(tool)
@@ -222,7 +229,7 @@ MasterButton.Font = Enum.Font.GothamBold
 MasterButton.Parent = MainFrame
 Instance.new('UICorner', MasterButton).CornerRadius = UDim.new(0, 6)
 
--- [ 拖曳功能 ] --
+-- [ 拖曳功能 ]
 local dragging, dragInput, dragStart, startPos
 
 TopBar.InputBegan:Connect(function(input)
@@ -282,15 +289,11 @@ local function ToggleAll()
         ApplyOneTimeSetups(LocalPlayer.Character)
 
         -- [ 防禦 3：世界底線突破 (免疫虛空秒殺) ]
-        pcall(function()
-            Workspace.FallenPartsDestroyHeight = -9e9
-        end)
+        pcall(function() Workspace.FallenPartsDestroyHeight = -9e9 end)
 
         -- [ 防禦 4：環境武裝解除 (拆除秒殺磚與爆炸) ]
         for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("TouchTransmitter") then
-                obj:Destroy()
-            end
+            if obj:IsA("TouchTransmitter") then obj:Destroy() end
         end
 
         -- [ 防禦 5：真・反綁架錨點 (Anti-Bring & Anchor) + 虛空折返 ]
@@ -299,29 +302,23 @@ local function ToggleAll()
             if hrp then
                 if lastSafeCFrame then
                     local distance = (hrp.Position - lastSafeCFrame.Position).Magnitude
-                    
-                    -- 如果掉落太深，強制虛空折返
                     if hrp.Position.Y < -500 then
                         hrp.CFrame = lastSafeCFrame + Vector3.new(0, 50, 0)
                         hrp.AssemblyLinearVelocity = Vector3.zero
-                    -- 檢查異常位移 (反傳送)
                     elseif distance > 150 then
                         hrp.CFrame = lastSafeCFrame
                         hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                     else
-                        -- 正常在地表移動，更新安全座標
                         lastSafeCFrame = hrp.CFrame
                     end
                 else
                     lastSafeCFrame = hrp.CFrame
                 end
-                
-                -- 強制解除惡意定身 (Anti-Anchor)
                 if hrp.Anchored then hrp.Anchored = false end
             end
         end)
 
-        -- [ 防禦 6：引擎級虛無化 + 絕對領域 (Aura Nullification) ]
+        -- [ 防禦 6：引擎級虛無化 + 不擇手段的絕對領域 ]
         connections.PhysicsStepped = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild('HumanoidRootPart')
@@ -335,7 +332,13 @@ local function ToggleAll()
                         end
                         part.CustomPhysicalProperties = PhysicalProperties.new(math.huge, 0, 0, math.huge, math.huge)
                         part.CanCollide = false
-                        part.CanTouch = false
+                        
+                        -- 【關鍵修復】保留自己手部與武器的觸碰判定，否則自己無法攻擊！
+                        if part:FindFirstAncestorOfClass("Tool") or part.Name:match("Hand") or part.Name:match("Arm") then
+                            part.CanTouch = true
+                        else
+                            part.CanTouch = false
+                        end
                         part.Massless = true
                     end
                 end
@@ -345,15 +348,18 @@ local function ToggleAll()
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                     hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
                     
-                    -- 【新增】絕對領域：粉碎接近的威脅 (半徑 15 內的物體失去動能)
-                    local nearbyParts = Workspace:GetPartBoundsInRadius(hrp.Position, 15)
+                    -- 【不擇手段的絕對領域】粉碎半徑 20 內的威脅
+                    local nearbyParts = Workspace:GetPartBoundsInRadius(hrp.Position, 20)
                     for _, part in ipairs(nearbyParts) do
                         if part:IsA("BasePart") and not part:IsDescendantOf(char) and not part.Anchored then
-                            -- 排除尺寸超大的物體 (避免影響我們自己放大的 Hitbox)
-                            if part.Size.Magnitude < 3000 then
+                            -- 【白名單過濾】如果是我們的投擲物，領域將會放行
+                            if not myProjectiles[part] and not myProjectiles[part.Parent] then
                                 part.AssemblyLinearVelocity = Vector3.zero
                                 part.AssemblyAngularVelocity = Vector3.zero
                                 part.CanCollide = false
+                                part.CanTouch = false
+                                -- 【直接抹消】連擋路都不給，把敵方投擲物強制傳送到地底虛空
+                                pcall(function() part.CFrame = CFrame.new(0, -99999, 0) end)
                             end
                         end
                     end
@@ -361,14 +367,13 @@ local function ToggleAll()
             end
         end)
 
-        -- [ 防禦 7：心跳級免疫外部寄生、反控場、相機保護 ]
+        -- [ 防禦 7：心跳級免疫外部寄生、反控場、持續破甲 ]
         connections.AntiAttach = RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character
             if char then
                 local hrp = char:FindFirstChild('HumanoidRootPart')
                 local hum = char:FindFirstChild('Humanoid')
                 
-                -- 相機防劫持 (強制看回自己)
                 local cam = Workspace.CurrentCamera
                 if cam and hum and cam.CameraSubject ~= hum then
                     cam.CameraSubject = hum
@@ -393,11 +398,21 @@ local function ToggleAll()
                 end
                 
                 if hum then
-                    -- 血量鎖定
                     if hum.Health < hum.MaxHealth then hum.Health = hum.MaxHealth end
-                    -- 反強控：禁止坐下與禁止跌倒
                     if hum.Sit then hum.Sit = false end
                     if hum.PlatformStand then hum.PlatformStand = false end
+                end
+            end
+
+            -- 【主動破甲】每幀掃描場上所有敵人，只要他們掏出盾牌/武器，瞬間剝奪判定
+            for _, obj in ipairs(Workspace:GetChildren()) do
+                if obj:IsA("Model") and obj ~= char and obj:FindFirstChild("Humanoid") then
+                    for _, part in ipairs(obj:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            part.CanCollide = false
+                            part.CanTouch = false
+                        end
+                    end
                 end
             end
         end)
@@ -406,49 +421,41 @@ local function ToggleAll()
         -- [ 殲滅 8：全體敵人/NPC Hitbox 與 投擲物極限化 ]
         -- ==========================================
         
-        -- 初始化掃描場上所有已存在的敵人/NPC
         for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then
-                ExpandEnemyHitbox(obj)
-            end
+            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then ExpandEnemyHitbox(obj) end
         end
 
-        -- 監控世界中新生成的物件 (包含新敵人 與 新投擲物)
         connections.WorldMonitor = Workspace.DescendantAdded:Connect(function(obj)
             if not isMasterActive then return end
 
-            -- 攔截環境威脅
             if obj:IsA("Explosion") or obj:IsA("TouchTransmitter") then
                 task.defer(function() pcall(function() obj:Destroy() end) end)
                 return
             end
 
-            -- 掃描新生成的敵人或玩家
             if obj:IsA("Model") then
                 task.delay(0.5, function()
-                    if obj and obj.Parent and obj:FindFirstChild("Humanoid") then
-                        ExpandEnemyHitbox(obj)
-                    end
+                    if obj and obj.Parent and obj:FindFirstChild("Humanoid") then ExpandEnemyHitbox(obj) end
                 end)
             end
 
-            -- 掃描自我投擲物 (利用生成距離判定)
+            -- 掃描自我投擲物並加入白名單
             if obj:IsA("BasePart") then
                 local hrp = GetHRP()
                 if hrp then
                     task.defer(function()
-                        -- 如果是無錨點零件，且不是在自己角色內
                         if obj and obj.Parent and not obj.Anchored and not obj:IsDescendantOf(LocalPlayer.Character) then
                             local distance = (obj.Position - hrp.Position).Magnitude
-                            -- 如果在你身邊極近距離 (25 Studs內) 生成，高機率是你的投擲物/技能
+                            -- 生成在你身邊的投擲物，高機率是你的攻擊
                             if distance < 25 then
+                                myProjectiles[obj] = true -- 【加入白名單】
                                 if not originalProjSizes[obj] then originalProjSizes[obj] = obj.Size end
-                                obj.Size = Vector3.new(2048, 2048, 2048)
+                                obj.Size = Vector3.new(60, 60, 60)
                                 obj.Transparency = 0.5
                                 obj.BrickColor = BrickColor.new("Cyan")
                                 obj.Material = Enum.Material.ForceField
                                 obj.CanCollide = false
-                                obj.CanTouch = true -- 【穿透機制】我們的投擲物具備絕對觸碰判定
+                                obj.CanTouch = true -- 確保有傷害
                                 obj.Massless = true
                             end
                         end
@@ -457,7 +464,6 @@ local function ToggleAll()
             end
         end)
 
-        -- 監控其他玩家重生
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
                 connections["Plr_"..plr.Name] = plr.CharacterAdded:Connect(function(char)
@@ -477,9 +483,7 @@ local function ToggleAll()
         local hum = GetHum()
         local hrp = GetHRP()
         
-        pcall(function()
-            Workspace.FallenPartsDestroyHeight = originalFallenHeight
-        end)
+        pcall(function() Workspace.FallenPartsDestroyHeight = originalFallenHeight end)
 
         if hum then
             for stateType, isEnabled in pairs(originalStates) do
@@ -489,18 +493,13 @@ local function ToggleAll()
 
         if char then
             for part, props in pairs(originalPhysicalProperties) do
-                if part and part.Parent then
-                    part.CustomPhysicalProperties = props
-                end
+                if part and part.Parent then part.CustomPhysicalProperties = props end
             end
             for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanTouch = true
-                end
+                if part:IsA("BasePart") then part.CanTouch = true end
             end
         end
 
-        -- 還原 Hitbox
         for part, size in pairs(originalSizes) do
             if part and part.Parent then
                 part.Size = size
@@ -511,7 +510,7 @@ local function ToggleAll()
         for part, size in pairs(originalProjSizes) do
             if part and part.Parent then
                 part.Size = size
-                part.Transparency = 0 -- 預設不可見武器通常為0
+                part.Transparency = 0 
                 part.Material = Enum.Material.Plastic
             end
         end
@@ -520,13 +519,10 @@ local function ToggleAll()
         originalStates = {}
         originalSizes = setmetatable({}, {__mode = "k"})
         originalProjSizes = setmetatable({}, {__mode = "k"})
+        myProjectiles = setmetatable({}, {__mode = "k"}) -- 清空白名單
         lastSafeCFrame = nil
         
-        pcall(function()
-            if hrp then
-                sethiddenproperty(hrp, "NetworkIsSleeping", false)
-            end
-        end)
+        pcall(function() if hrp then sethiddenproperty(hrp, "NetworkIsSleeping", false) end end)
     end
 end
 
