@@ -1,6 +1,6 @@
--- [[ 絕對防禦 V6 (幻影疊加版)：全網Anti-Aim整合 + 反預判速度欺騙 + 終極解同步 ]] --
+-- [[ 絕對防禦 V6.5 (血幻影版)：Anti-Aim + Rage Bot 完美兼容修復版 ]] --
 -- 維護者：專屬腳本架構師
--- 承諾：自動繼承所有穩定功能，極限化生存率，拒絕卡頓。
+-- 特色：新增 Rage Sync 模式，解決自瞄運算崩潰、FOV判定失效等問題。
 
 local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
@@ -19,11 +19,17 @@ end)
 -- ==========================================
 -- [ 全域狀態與變數 ]
 -- ==========================================
-local Flags = { AbsoluteDefense = false }
+local Flags = { 
+    AbsoluteDefense = false,
+    RageSync = false -- 預設關閉，開啟後完美兼容 Rage Bot
+}
 local connections = {}
 local realCFrame = nil
 local realVelocity = Vector3.new(0, 0, 0)
-local LIMIT_COORD = 9e8 -- Lua 物理引擎極限數值 (稍微調低避免伺服器踢出)
+local LIMIT_COORD = 9e8 
+
+local OriginalSizes = {}
+local OriginalC0s = {}
 
 local function ClearConnections()
     for key, conn in pairs(connections) do
@@ -32,17 +38,14 @@ local function ClearConnections()
         end
     end
     table.clear(connections)
+    pcall(function() RunService:UnbindFromRenderStep("AegisRestore") end)
 end
 
-local OriginalSizes = {}
-local OriginalC0s = {}
-
 -- ==========================================
--- [ 核心引擎：V6 終極防禦機制 ]
+-- [ 核心引擎：V6.5 狂暴同步防禦機制 ]
 -- ==========================================
 local function ActivateLimitEngine()
     ClearConnections()
-    
     pcall(function() workspace.FallenPartsDestroyHeight = -math.huge end)
 
     local char = LocalPlayer.Character
@@ -55,102 +58,81 @@ local function ActivateLimitEngine()
             hum.RequiresNeck = false
             hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
             hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false) -- 防止被外力物理擊飛
+            hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
         end)
     end
 
     if char then
         for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                OriginalSizes[part] = part.Size
-            elseif part:IsA("Motor6D") then
-                OriginalC0s[part] = part.C0
-            end
+            if part:IsA("BasePart") then OriginalSizes[part] = part.Size
+            elseif part:IsA("Motor6D") then OriginalC0s[part] = part.C0 end
         end
     end
 
-    -- 【防撞擊與物理抹除】
+    -- 【階段 1：捕獲真實狀態 (確保你本地的移動與輸入不受干擾)】
     connections.Stepped = RunService.Stepped:Connect(function()
         if not Flags.AbsoluteDefense then return end
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                for _, part in ipairs(player.Character:GetChildren()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
+        local currentChar = LocalPlayer.Character
+        if currentChar then
+            local hrp = currentChar:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                realCFrame = hrp.CFrame
+                realVelocity = hrp.AssemblyLinearVelocity
+            end
+            
+            -- 防撞擊與物理抹除
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    for _, part in ipairs(player.Character:GetChildren()) do
+                        if part:IsA("BasePart") then part.CanCollide = false end
                     end
                 end
             end
         end
     end)
 
-    -- 【V6 核心：Anti-Aim, Velocity Spoofing, Jitter, Singularity】
+    -- 【階段 2：伺服器欺騙 (製造幻影與干擾敵人)】
     connections.Heartbeat = RunService.Heartbeat:Connect(function()
         if not Flags.AbsoluteDefense then return end
         local char = LocalPlayer.Character
         if not char then return end
         
-        -- (繼承) 自我奇異點 - 體積無限小 + 隱藏頭部
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.Size = Vector3.new(0.01, 0.01, 0.01)
-                part.Massless = true
-                if part.Name == "Head" then
-                    part.Transparency = 1 
-                end
-            elseif part:IsA("Motor6D") then
-                part.C0 = CFrame.new(0, 0, 0) * CFrame.Angles(
-                    math.rad(math.random(-36000, 36000)), 
-                    math.rad(math.random(-36000, 36000)), 
-                    math.rad(math.random(-36000, 36000))
-                )
-            end
-        end
-
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            -- 儲存真實位置供客戶端畫面使用
-            realCFrame = hrp.CFrame 
-            realVelocity = hrp.AssemblyLinearVelocity
+        if hrp and realCFrame then
+            if Flags.RageSync then
+                -- [ Rage Bot 兼容模式 ]
+                -- 震盪範圍縮小至 35 內，確保敵人在 Rage Bot 的 FOV 內
+                -- 速度箝制在 ±600，防止 Rage Bot 的預判數學公式回傳 NaN
+                local jitterX = math.random(-35, 35)
+                local jitterY = math.random(-15, 15)
+                local jitterZ = math.random(-35, 35)
+                
+                hrp.CFrame = CFrame.new(realCFrame.Position + Vector3.new(jitterX, jitterY, jitterZ)) 
+                             * CFrame.Angles(math.rad(180), math.rad(math.random(0, 360)), 0)
+                
+                hrp.AssemblyLinearVelocity = Vector3.new(math.random(-600, 600), math.random(-600, 600), math.random(-600, 600))
+            else
+                -- [ 純粹幻影模式 (不開 Rage Bot 時最無敵) ]
+                local limitX = (math.random() > 0.5 and 1 or -1) * LIMIT_COORD
+                local limitZ = (math.random() > 0.5 and 1 or -1) * LIMIT_COORD
+                hrp.CFrame = CFrame.new(limitX + math.random(-50,50), (LIMIT_COORD / 10), limitZ + math.random(-50,50)) 
+                             * CFrame.Angles(math.rad(180), math.rad(math.random(0, 360)), math.rad(math.random(-90, 90)))
+                             
+                hrp.AssemblyLinearVelocity = Vector3.new(math.random(-99999, 99999), math.random(-99999, 99999), math.random(-99999, 99999))
+            end
+            hrp.AssemblyAngularVelocity = Vector3.new(math.random(-9999, 9999), math.random(-9999, 9999), math.random(-9999, 9999))
             
-            -- (繼承) 反投擲物操控
-            local overlapParams = OverlapParams.new()
-            overlapParams.FilterDescendantsInstances = {char}
-            overlapParams.FilterType = Enum.RaycastFilterType.Exclude
-            local incomingThreats = workspace:GetPartBoundsInRadius(realCFrame.Position, 25, overlapParams)
-            for _, threat in ipairs(incomingThreats) do
-                if threat:IsA("BasePart") and not threat.Anchored and threat.Size.Magnitude < 15 then
-                    pcall(function()
-                        threat.CanTouch = false 
-                        threat.CanCollide = false
-                        threat.CFrame = CFrame.new(0, -50000, 0)
-                    end)
+            -- 自我奇異點
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Size = Vector3.new(0.01, 0.01, 0.01)
+                    part.Massless = true
+                    if part.Name == "Head" then part.Transparency = 1 end
                 end
             end
-
-            -- 【V6 新增 1：Velocity Spoofing (反預判)】
-            -- 讓所有依賴預判(Prediction)的自瞄外掛完全失效
-            hrp.AssemblyLinearVelocity = Vector3.new(
-                math.random(-99999, 99999), 
-                math.random(-99999, 99999), 
-                math.random(-99999, 99999)
-            )
-            hrp.AssemblyAngularVelocity = Vector3.new(math.random(-99999, 99999), math.random(-99999, 99999), math.random(-99999, 99999))
-
-            -- 【V6 新增 2：CFrame Jitter + Inverted Stance (伺服器震盪與上下顛倒)】
-            -- 在極限座標周圍加入隨機的劇烈震盪，並且將角色上下顛倒 (埋藏頭部Hitbox)
-            local limitX = (math.random() > 0.5 and 1 or -1) * LIMIT_COORD
-            local limitZ = (math.random() > 0.5 and 1 or -1) * LIMIT_COORD
-            local jitterX = math.random(-50, 50)
-            local jitterY = math.random(-50, 50)
-            local jitterZ = math.random(-50, 50)
-            
-            -- CFrame.Angles(math.rad(180)...) 讓角色倒立
-            hrp.CFrame = CFrame.new(limitX + jitterX, (LIMIT_COORD / 10) + jitterY, limitZ + jitterZ) 
-                         * CFrame.Angles(math.rad(180), math.rad(math.random(0, 360)), math.rad(math.random(-90, 90)))
         end
-
-        -- (繼承) 無限放大敵人 Hitbox
+        
+        -- 無限放大敵人 Hitbox (輔助你的 Rage Bot)
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character then
                 local enemyHRP = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Torso")
@@ -165,20 +147,22 @@ local function ActivateLimitEngine()
         end
     end)
 
-    -- 【客戶端視角完美還原】
-    -- 確保你的畫面不會因為上述的極端操作而瘋狂亂抖
-    connections.Render = RunService.RenderStepped:Connect(function()
+    -- 【階段 3：本地端完美還原 (覆寫管線優先級)】
+    -- 使用 RenderPriority.Camera - 10 確保在你的 Rage Bot 運作前，先把你的座標還原！
+    RunService:BindToRenderStep("AegisRestore", Enum.RenderPriority.Camera.Value - 10, function()
         if not Flags.AbsoluteDefense then return end
         local char = LocalPlayer.Character
-        if char and char:FindFirstChild("HumanoidRootPart") and realCFrame then
-            char.HumanoidRootPart.CFrame = realCFrame
-            -- 將你本地的物理速度還原，保證你能正常走路跳躍
-            char.HumanoidRootPart.AssemblyLinearVelocity = realVelocity
-            char.HumanoidRootPart.AssemblyAngularVelocity = Vector3.new(0,0,0)
+        if char and realCFrame then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = realCFrame
+                hrp.AssemblyLinearVelocity = realVelocity
+                hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+            end
         end
     end)
     
-    -- (繼承) 防爆系統
+    -- 防爆系統
     connections.Explosion = workspace.DescendantAdded:Connect(function(desc)
         if Flags.AbsoluteDefense and desc.ClassName == "Explosion" then
             desc.BlastPressure = 0
@@ -215,7 +199,7 @@ local function DeactivateLimitEngine()
 end
 
 -- ==========================================
--- [ 微型化 UI 介面 (V6 幻影版) ]
+-- [ 雙按鈕 UI 介面 (V6.5 血幻影版) ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'AegisV6GUI'
@@ -224,45 +208,68 @@ pcall(function() ScreenGui.Parent = CoreGui end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
-MainFrame.Size = UDim2.new(0, 160, 0, 45) 
+MainFrame.Size = UDim2.new(0, 160, 0, 80) -- 擴大以容納第二個按鈕
 MainFrame.Position = UDim2.new(0.5, -80, 0.85, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 12)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 10, 15)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 Instance.new('UICorner', MainFrame).CornerRadius = UDim.new(0, 8)
 
 local UIStroke = Instance.new('UIStroke')
-UIStroke.Color = Color3.fromRGB(120, 50, 200) -- V6專屬幻影紫
+UIStroke.Color = Color3.fromRGB(200, 30, 60) -- V6.5專屬血幻影紅
 UIStroke.Thickness = 2
 UIStroke.Parent = MainFrame
 
+-- 按鈕 1：主開關
 local ToggleBtn = Instance.new('TextButton')
-ToggleBtn.Size = UDim2.new(1, -8, 1, -8)
-ToggleBtn.Position = UDim2.new(0, 4, 0, 4)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 15, 25)
-ToggleBtn.Text = 'Phantom V6 [ OFF ]'
-ToggleBtn.TextColor3 = Color3.fromRGB(180, 130, 255)
+ToggleBtn.Size = UDim2.new(1, -12, 0, 30)
+ToggleBtn.Position = UDim2.new(0, 6, 0, 6)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(25, 15, 20)
+ToggleBtn.Text = 'Phantom [ OFF ]'
+ToggleBtn.TextColor3 = Color3.fromRGB(255, 100, 120)
 ToggleBtn.Font = Enum.Font.GothamBlack
 ToggleBtn.TextSize = 12 
 ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 6)
 
+-- 按鈕 2：Rage Bot 同步開關
+local SyncBtn = Instance.new('TextButton')
+SyncBtn.Size = UDim2.new(1, -12, 0, 30)
+SyncBtn.Position = UDim2.new(0, 6, 0, 42)
+SyncBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+SyncBtn.Text = 'Rage Sync: OFF'
+SyncBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+SyncBtn.Font = Enum.Font.GothamBold
+SyncBtn.TextSize = 11 
+SyncBtn.Parent = MainFrame
+Instance.new('UICorner', SyncBtn).CornerRadius = UDim.new(0, 6)
+
 ToggleBtn.MouseButton1Click:Connect(function()
     Flags.AbsoluteDefense = not Flags.AbsoluteDefense
-    
     if Flags.AbsoluteDefense then
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 10, 40)
-        ToggleBtn.TextColor3 = Color3.fromRGB(220, 100, 255)
-        ToggleBtn.Text = 'Phantom V6 [ ON ]'
-        UIStroke.Color = Color3.fromRGB(200, 50, 255)
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 10, 20)
+        ToggleBtn.TextColor3 = Color3.fromRGB(255, 50, 80)
+        ToggleBtn.Text = 'Phantom [ ON ]'
         ActivateLimitEngine()
     else
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 15, 25)
-        ToggleBtn.TextColor3 = Color3.fromRGB(180, 130, 255)
-        ToggleBtn.Text = 'Phantom V6 [ OFF ]'
-        UIStroke.Color = Color3.fromRGB(120, 50, 200)
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(25, 15, 20)
+        ToggleBtn.TextColor3 = Color3.fromRGB(255, 100, 120)
+        ToggleBtn.Text = 'Phantom [ OFF ]'
         DeactivateLimitEngine()
+    end
+end)
+
+SyncBtn.MouseButton1Click:Connect(function()
+    Flags.RageSync = not Flags.RageSync
+    if Flags.RageSync then
+        SyncBtn.BackgroundColor3 = Color3.fromRGB(150, 100, 20)
+        SyncBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
+        SyncBtn.Text = 'Rage Sync: ON (Safe)'
+    else
+        SyncBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        SyncBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
+        SyncBtn.Text = 'Rage Sync: OFF'
     end
 end)
 
@@ -279,9 +286,7 @@ MainFrame.InputBegan:Connect(function(input)
     end
 end)
 MainFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
 end)
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
@@ -291,7 +296,5 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 LocalPlayer.CharacterAdded:Connect(function()
-    task.delay(0.5, function()
-        if Flags.AbsoluteDefense then ActivateLimitEngine() end
-    end)
+    task.delay(0.5, function() if Flags.AbsoluteDefense then ActivateLimitEngine() end end)
 end)
