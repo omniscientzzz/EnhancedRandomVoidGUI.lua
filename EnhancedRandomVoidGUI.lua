@@ -10,13 +10,28 @@ local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
 local LocalPlayer = Players.LocalPlayer
 
--- [ 防呆機制：清除重複的 GUI ] --
-pcall(function()
-    local oldGui = LocalPlayer.PlayerGui:FindFirstChild('UltimateVoidGUI')
-    if oldGui then oldGui:Destroy() end
-    local coreGui = game:GetService("CoreGui"):FindFirstChild('UltimateVoidGUI')
-    if coreGui then coreGui:Destroy() end
-end)
+-- ==========================================
+-- [ 終極防呆機制：強力清除所有舊版 GUI ]
+-- ==========================================
+local function ForceCleanOldGUIs()
+    local guiNamesToDelete = {'VoidGUI', 'UltimateVoidGUI', 'OblivionProtocolGUI'}
+    
+    for _, guiName in ipairs(guiNamesToDelete) do
+        pcall(function()
+            -- 清除 PlayerGui 中的殘留
+            local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+            if playerGui and playerGui:FindFirstChild(guiName) then
+                playerGui[guiName]:Destroy()
+            end
+            -- 清除 CoreGui 中的殘留 (部分執行器會放這裡)
+            local coreGui = game:GetService("CoreGui")
+            if coreGui and coreGui:FindFirstChild(guiName) then
+                coreGui[guiName]:Destroy()
+            end
+        end)
+    end
+end
+ForceCleanOldGUIs()
 
 -- [ 狀態變數與連接池 ] --
 local isMasterActive = false
@@ -45,9 +60,10 @@ end
 -- [ 極簡 UI 介面設計 - 一鍵啟動版 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'UltimateVoidGUI'
+ScreenGui.Name = 'OblivionProtocolGUI' -- 使用全新命名避免衝突
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.DisplayOrder = 999999 -- 確保在最上層，絕對不會被擋住點擊
 
 local success, core = pcall(function() return game:GetService("CoreGui") end)
 ScreenGui.Parent = success and core or LocalPlayer:WaitForChild("PlayerGui")
@@ -55,7 +71,8 @@ ScreenGui.Parent = success and core or LocalPlayer:WaitForChild("PlayerGui")
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
 MainFrame.Size = UDim2.new(0, 200, 0, 90)
-MainFrame.Position = UDim2.new(1, -220, 1, -200)
+-- 這次預設放在畫面正中央，讓你一眼就能確認執行成功
+MainFrame.Position = UDim2.new(0.5, -100, 0.5, -45)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -173,7 +190,6 @@ local function ToggleAll()
         end)
 
         -- [ 2. 啟動 Absolute Mass (絕對質量) & [ 6. 啟動 Noclip (穿牆) ] & [ 3. 啟動 Untouchable (虛無化) ]
-        -- 為了效能，將這三者合併到同一個 Stepped 循環中
         connections.Physics = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             if char then
@@ -201,7 +217,6 @@ local function ToggleAll()
         connections.AntiBring = RunService.Heartbeat:Connect(function()
             local hrp = GetHRP()
             if hrp then
-                -- 因為 Void TP 也開著，防禦位移判斷需適應 Void TP 特性
                 lastPos = hrp.Position 
             end
         end)
@@ -234,7 +249,6 @@ local function ToggleAll()
             for _, part in ipairs(char:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanTouch = true
-                    -- 碰撞(CanCollide)會由遊戲引擎自動接管還原
                 end
             end
         end
