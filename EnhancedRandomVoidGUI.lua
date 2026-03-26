@@ -10,6 +10,15 @@ local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
 local LocalPlayer = Players.LocalPlayer
 
+-- [ 防呆機制：清除重複的 GUI ] --
+-- 避免多次執行腳本導致隱形的舊 GUI 蓋在上面，阻擋按鍵點擊
+pcall(function()
+    local oldGui = LocalPlayer.PlayerGui:FindFirstChild('UltimateVoidGUI')
+    if oldGui then oldGui:Destroy() end
+    local coreGui = game:GetService("CoreGui"):FindFirstChild('UltimateVoidGUI')
+    if coreGui then coreGui:Destroy() end
+end)
+
 -- [ 狀態變數 ] --
 local isActive = false
 local teleportCount = 0
@@ -51,7 +60,10 @@ local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'UltimateVoidGUI'
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- 嘗試放入 CoreGui 防偵測與避免介面被遊戲本身干擾，若失敗則放 PlayerGui
+local success, core = pcall(function() return game:GetService("CoreGui") end)
+ScreenGui.Parent = success and core or LocalPlayer:WaitForChild("PlayerGui")
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
@@ -60,7 +72,7 @@ MainFrame.Position = UDim2.new(1, -250, 1, -440)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true
+-- 移除內建的 Draggable，改用下方自訂拖曳腳本，避免阻擋點擊
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new('UICorner')
@@ -97,6 +109,39 @@ Title.TextSize = 15
 Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = TopBar
+
+-- [ 自訂拖曳功能 (取代不穩定的 Draggable) ] --
+local dragging
+local dragInput
+local dragStart
+local startPos
+
+TopBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+TopBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
 
 -- ==========================================
 -- [ 上半部：經典 Void TP 區塊 ]
@@ -167,7 +212,8 @@ local function CreateDefButton(text, colorOff, colorOn, callback)
     btn.Parent = Container
     
     local isOn = false
-    btn.Activated:Connect(function()
+    -- 將 Activated 改為 MouseButton1Click 更穩定
+    btn.MouseButton1Click:Connect(function()
         isOn = not isOn
         if isOn then
             btn.BackgroundColor3 = colorOn
@@ -229,8 +275,9 @@ ToggleButton.MouseEnter:Connect(function()
     ToggleButton.BackgroundColor3 = isActive and Color3.fromRGB(180, 60, 80) or Color3.fromRGB(100, 60, 200)
 end)
 
-ToggleButton.MouseLeave:Connect(UpdateUI) -- 修復原版 Bug
-ToggleButton.Activated:Connect(ToggleVoid)
+ToggleButton.MouseLeave:Connect(UpdateUI)
+-- 將 Activated 改為 MouseButton1Click 更穩定
+ToggleButton.MouseButton1Click:Connect(ToggleVoid)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed then
