@@ -31,12 +31,11 @@ ForceCleanOldGUIs()
 
 local isMasterActive = false
 local connections = {}
-local originalStates = {}
-
--- 來自腳本 1 的追蹤變數
 local originalPhysicalProperties = {}
+local originalStates = {}
 local originalFallenHeight = Workspace.FallenPartsDestroyHeight
 local lastSafeCFrame = nil
+
 local originalSizes = setmetatable({}, {__mode = "k"})
 local originalProjSizes = setmetatable({}, {__mode = "k"})
 local myProjectiles = setmetatable({}, {__mode = "k"})
@@ -52,7 +51,54 @@ local function GetHum()
 end
 
 -- ==========================================
--- [ 領域展開：敵人破甲與武器強化 (來自腳本 1) ]
+-- [ ★ 核心升級：Metatable 幻術與伺服器欺騙 ★ ]
+-- ==========================================
+local OldNamecall
+local OldNewIndex
+local OldIndex
+
+if hookmetamethod then
+    -- 攔截 Namecall (防止客戶端被踢或被強殺)
+    OldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if isMasterActive then
+            if method == "Kick" or method == "kick" then
+                if self == LocalPlayer then return nil end
+            elseif method == "TakeDamage" or method == "BreakJoints" then
+                local char = LocalPlayer.Character
+                if char and (self == char or self:IsDescendantOf(char)) then return nil end
+            end
+        end
+        return OldNamecall(self, ...)
+    end)
+
+    -- 攔截 NewIndex (鎖死屬性修改)
+    OldNewIndex = hookmetamethod(game, "__newindex", function(self, key, value)
+        if isMasterActive then
+            local char = LocalPlayer.Character
+            if char and self:IsDescendantOf(char) and self:IsA("Humanoid") then
+                -- 拒絕任何試圖增加我們血量的行為，保持 0 血量欺騙伺服器
+                if key == "Health" then return nil end
+            end
+        end
+        return OldNewIndex(self, key, value)
+    end)
+
+    -- 攔截 Index (對本地腳本偽裝我們是滿血，防止 GUI 損壞)
+    OldIndex = hookmetamethod(game, "__index", function(self, key)
+        if isMasterActive and not checkcaller() then
+            local char = LocalPlayer.Character
+            if char and self:IsDescendantOf(char) and self:IsA("Humanoid") then
+                if key == "Health" then return self.MaxHealth end
+                if key == "Dead" then return false end
+            end
+        end
+        return OldIndex(self, key)
+    end)
+end
+
+-- ==========================================
+-- [ 領域展開：敵人破甲與武器強化 ]
 -- ==========================================
 local function ExpandEnemyHitbox(char)
     if not char or char == LocalPlayer.Character then return end
@@ -103,81 +149,30 @@ local function ExpandToolHitbox(tool)
 end
 
 -- ==========================================
--- [ ★ 修復版：安全 Metatable 攔截 (來自腳本 2) ★ ]
--- ==========================================
-local OldNamecall
-local OldNewIndex
-local OldIndex
-
-if hookmetamethod then
-    -- 攔截 Namecall (防止客戶端被踢或被強殺)
-    OldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-        local method = getnamecallmethod()
-        if isMasterActive and typeof(self) == "Instance" then
-            if method == "Kick" or method == "kick" then
-                if self == LocalPlayer then return nil end
-            elseif method == "TakeDamage" or method == "BreakJoints" then
-                local char = LocalPlayer.Character
-                if char and (self == char or self:IsDescendantOf(char)) then return nil end
-            end
-        end
-        return OldNamecall(self, ...)
-    end)
-
-    -- 攔截 NewIndex (鎖死血量修改)
-    OldNewIndex = hookmetamethod(game, "__newindex", function(self, key, value)
-        if isMasterActive and not checkcaller() and typeof(self) == "Instance" then
-            if key == "Health" and self:IsA("Humanoid") then
-                local char = LocalPlayer.Character
-                if char and self:IsDescendantOf(char) then
-                    -- 拒絕寫入，維持 0 血量狀態
-                    return 
-                end
-            end
-        end
-        return OldNewIndex(self, key, value)
-    end)
-
-    -- 攔截 Index (修復無限遞迴卡死問題)
-    OldIndex = hookmetamethod(game, "__index", function(self, key)
-        if isMasterActive and not checkcaller() and typeof(self) == "Instance" then
-            if self:IsA("Humanoid") then
-                local char = LocalPlayer.Character
-                if char and self:IsDescendantOf(char) then
-                    -- 使用 OldIndex 獲取 MaxHealth，避免 self.MaxHealth 再次觸發 __index 造成當機
-                    if key == "Health" then return OldIndex(self, "MaxHealth") end
-                    if key == "Dead" then return false end
-                end
-            end
-        end
-        return OldIndex(self, key)
-    end)
-end
-
--- ==========================================
--- [ 啟動喪屍無敵機制 (Zombie Desync 融合版) ]
+-- [ 啟動喪屍無敵機制 (Zombie Desync) ]
 -- ==========================================
 local function ApplyOneTimeSetups(char)
     if not char then return end
     local hum = char:WaitForChild("Humanoid", 3)
-    local hrp = char:WaitForChild("HumanoidRootPart", 3) -- 來自腳本 1
+    local hrp = char:WaitForChild("HumanoidRootPart", 3)
     
     if not isMasterActive then return end
 
     if hrp then
-        -- 來自腳本 1：睡眠網路與安全座標紀錄
         pcall(function() sethiddenproperty(hrp, "NetworkIsSleeping", true) end)
         lastSafeCFrame = hrp.CFrame
     end
 
     if hum then
-        -- 1. 徹底關閉致死機制 (腳本 2 邏輯為主)
+        -- 1. 徹底關閉致死機制
         hum.BreakJointsOnDeath = false 
         hum.RequiresNeck = false       
         
         local badStates = {
             Enum.HumanoidStateType.Dead, Enum.HumanoidStateType.Ragdoll,
-            Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Physics
+            Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.Physics,
+            Enum.HumanoidStateType.PlatformStanding, Enum.HumanoidStateType.Stunned,
+            Enum.HumanoidStateType.Seated
         }
         for _, s in ipairs(badStates) do
             if originalStates[s] == nil then originalStates[s] = hum:GetStateEnabled(s) end
@@ -185,10 +180,10 @@ local function ApplyOneTimeSetups(char)
         end
 
         -- 2. 觸發伺服器欺騙 (同步 0 血量給伺服器)
+        -- 這將導致所有 Exploit 的 FireServer 傷害判定在伺服器端失效
         hum.Health = 0 
     end
 
-    -- 來自腳本 1：武器 Hitbox 擴大與裝備監聽
     connections.ToolEquip = char.ChildAdded:Connect(ExpandToolHitbox)
     for _, tool in ipairs(char:GetChildren()) do
         ExpandToolHitbox(tool)
@@ -196,17 +191,17 @@ local function ApplyOneTimeSetups(char)
 end
 
 LocalPlayer.CharacterAdded:Connect(function(char)
-    originalPhysicalProperties = {} -- 腳本 1 重置物理屬性
+    originalPhysicalProperties = {}
     if isMasterActive then
         task.spawn(function()
-            task.wait(0.5) -- 等待角色完全載入 (腳本 2 的延遲)
+            task.wait(0.2)
             ApplyOneTimeSetups(char)
         end)
     end
 end)
 
 -- ==========================================
--- [ UI 介面 (採用腳本 2 的主視覺設計) ]
+-- [ UI 介面 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'OblivionProtocolGUI'
@@ -231,13 +226,13 @@ UICorner.CornerRadius = UDim.new(0, 8)
 UICorner.Parent = MainFrame
 
 local UIStroke = Instance.new('UIStroke')
-UIStroke.Color = Color3.fromRGB(0, 255, 170)
+UIStroke.Color = Color3.fromRGB(170, 0, 255)
 UIStroke.Thickness = 2
 UIStroke.Parent = MainFrame
 
 local TopBar = Instance.new('Frame')
 TopBar.Size = UDim2.new(1, 0, 0, 30)
-TopBar.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
+TopBar.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
 TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
 Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 8)
@@ -245,15 +240,15 @@ Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 8)
 local TopBarFix = Instance.new('Frame')
 TopBarFix.Size = UDim2.new(1, 0, 0, 10)
 TopBarFix.Position = UDim2.new(0, 0, 1, -10)
-TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
+TopBarFix.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
 TopBarFix.BorderSizePixel = 0
 TopBarFix.Parent = TopBar
 
 local Title = Instance.new('TextLabel')
 Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = '🛡️ ZERO-HEALTH SYNC (FIXED)'
-Title.TextColor3 = Color3.fromRGB(180, 255, 220)
+Title.Text = '💀 ANTI-REMOTE DESYNC'
+Title.TextColor3 = Color3.fromRGB(220, 180, 255)
 Title.TextSize = 13
 Title.Font = Enum.Font.GothamBold
 Title.Parent = TopBar
@@ -261,9 +256,9 @@ Title.Parent = TopBar
 local MasterButton = Instance.new('TextButton')
 MasterButton.Size = UDim2.new(1, -20, 0, 45)
 MasterButton.Position = UDim2.new(0, 10, 0, 42)
-MasterButton.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
+MasterButton.BackgroundColor3 = Color3.fromRGB(100, 0, 180)
 MasterButton.BorderSizePixel = 0
-MasterButton.Text = 'ACTIVATE DESYNC'
+MasterButton.Text = 'ACTIVATE GOD MODE'
 MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MasterButton.TextSize = 13
 MasterButton.Font = Enum.Font.GothamBold
@@ -294,7 +289,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ==========================================
--- [ 狀態切換與維持迴圈 (融合版) ]
+-- [ 狀態切換與維持迴圈 ]
 -- ==========================================
 local function ToggleAll()
     isMasterActive = not isMasterActive
@@ -307,12 +302,12 @@ local function ToggleAll()
         TopBarFix.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
         Title.TextColor3 = Color3.fromRGB(255, 180, 180)
     else
-        MasterButton.Text = 'ACTIVATE DESYNC'
-        MasterButton.BackgroundColor3 = Color3.fromRGB(0, 180, 120)
-        UIStroke.Color = Color3.fromRGB(0, 255, 170)
-        TopBar.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
-        TopBarFix.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
-        Title.TextColor3 = Color3.fromRGB(180, 255, 220)
+        MasterButton.Text = 'ACTIVATE GOD MODE'
+        MasterButton.BackgroundColor3 = Color3.fromRGB(100, 0, 180)
+        UIStroke.Color = Color3.fromRGB(170, 0, 255)
+        TopBar.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
+        TopBarFix.BackgroundColor3 = Color3.fromRGB(40, 20, 60)
+        Title.TextColor3 = Color3.fromRGB(220, 180, 255)
     end
 
     for key, conn in pairs(connections) do
@@ -322,11 +317,8 @@ local function ToggleAll()
 
     if isMasterActive then
         ApplyOneTimeSetups(LocalPlayer.Character)
-        
-        -- 來自腳本 1：防止掉落死亡
         pcall(function() Workspace.FallenPartsDestroyHeight = -9e9 end)
 
-        -- 來自腳本 1：防抓取/防拉扯 (Anti-Bring)
         connections.AntiBring = RunService.RenderStepped:Connect(function()
             local hrp = GetHRP()
             if hrp then
@@ -348,7 +340,6 @@ local function ToggleAll()
             end
         end)
 
-        -- 來自腳本 1：物理層級覆寫與周邊控制
         connections.PhysicsStepped = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             local hrp = char and char:FindFirstChild('HumanoidRootPart')
@@ -394,23 +385,20 @@ local function ToggleAll()
             end
         end)
 
-        -- 融合版：狀態維持與修復
         connections.MaintainZombie = RunService.Heartbeat:Connect(function()
             local char = LocalPlayer.Character
             if char then
                 local hum = char:FindFirstChild('Humanoid')
                 if hum then
-                    -- 腳本 2 的極輕量 0 血量確保
+                    -- 持續確保血量為 0，維持伺服器欺騙狀態
                     if hum.Health > 0 then
                         hum.Health = 0
                     end
-                    -- 腳本 1 的防止被強制坐下/跌倒
                     if hum.Sit then hum.Sit = false end
                     if hum.PlatformStand then hum.PlatformStand = false end
                 end
             end
             
-            -- 腳本 1 的場景敵人無實體化
             for _, obj in ipairs(Workspace:GetChildren()) do
                 if obj:IsA("Model") and obj ~= char and obj:FindFirstChild("Humanoid") then
                     for _, part in ipairs(obj:GetDescendants()) do
@@ -424,12 +412,10 @@ local function ToggleAll()
             end
         end)
 
-        -- 來自腳本 1：擴大所有場上現存敵人的 Hitbox
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("Model") and obj:FindFirstChild("Humanoid") then ExpandEnemyHitbox(obj) end
         end
 
-        -- 來自腳本 1：監聽場上新出現的物件與玩家
         connections.WorldMonitor = Workspace.DescendantAdded:Connect(function(obj)
             if not isMasterActive then return end
             if obj:IsA("Explosion") or obj:IsA("TouchTransmitter") then
@@ -457,9 +443,9 @@ local function ToggleAll()
         end)
 
     else
-        -- 關閉：將腳本 1 與腳本 2 的恢復邏輯徹底融合
         local char = LocalPlayer.Character
         local hum = GetHum()
+        local hrp = GetHRP()
         
         pcall(function() Workspace.FallenPartsDestroyHeight = originalFallenHeight end)
 
@@ -499,8 +485,8 @@ local function ToggleAll()
             end
         end
 
-        originalStates = {}
         originalPhysicalProperties = {}
+        originalStates = {}
         originalSizes = setmetatable({}, {__mode = "k"})
         originalProjSizes = setmetatable({}, {__mode = "k"})
         myProjectiles = setmetatable({}, {__mode = "k"})
@@ -512,7 +498,6 @@ MasterButton.MouseButton1Click:Connect(ToggleAll)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed then
-        -- 結合腳本 1 和 2 的熱鍵
         if input.KeyCode == Enum.KeyCode.P then
             ToggleAll()
         elseif input.KeyCode == Enum.KeyCode.RightShift then
