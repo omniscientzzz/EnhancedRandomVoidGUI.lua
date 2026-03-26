@@ -1,7 +1,7 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID GUI: 純粹躍遷版 (100億 TP + 真實物理速度) ]] --
+-- [[ VOID GUI: 原始 Void TP 邏輯還原版 (修復 UI Bug) ]] --
 local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
@@ -14,12 +14,7 @@ local LocalPlayer = Players.LocalPlayer
 local isActive = false
 local connections = {}
 local realCFrame = nil
-local realVelocity = Vector3.new(0, 0, 0)
-local lastFakePos = Vector3.new(0, 0, 0)
 local teleportCount = 0
-
-local MAX_COORD = 10000000000 -- 100 億
-local MIN_JUMP = 700000000    -- 7 億
 
 local OriginalSizes = {}
 local OriginalC0s = {}
@@ -35,13 +30,12 @@ local function ClearConnections()
 end
 
 -- ==========================================
--- [ 介面建構 (還原你提供的 VOID UI) ]
+-- [ 介面建構 (完美還原 VOID UI) ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'VoidGUI'
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
--- 嘗試放入 CoreGui 防偵測，若不行則放 PlayerGui
 pcall(function() ScreenGui.Parent = CoreGui end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
@@ -131,11 +125,13 @@ StatsText.TextXAlignment = Enum.TextXAlignment.Left
 StatsText.Parent = MainFrame
 
 -- ==========================================
--- [ 引擎邏輯：啟動與關閉 ]
+-- [ 引擎邏輯：替換為純粹的 Void 座標系統 ]
 -- ==========================================
 local function StartVoid()
     ClearConnections()
     teleportCount = 0
+    table.clear(OriginalSizes)
+    table.clear(OriginalC0s)
     pcall(function() workspace.FallenPartsDestroyHeight = -math.huge end)
 
     local char = LocalPlayer.Character
@@ -159,7 +155,7 @@ local function StartVoid()
         end
     end
 
-    -- [1. 捕獲真實狀態]
+    -- [1. 捕獲本地真實位置]
     connections.Stepped = RunService.Stepped:Connect(function()
         if not isActive then return end
         local currentChar = LocalPlayer.Character
@@ -167,7 +163,6 @@ local function StartVoid()
             local hrp = currentChar:FindFirstChild("HumanoidRootPart")
             if hrp then
                 realCFrame = hrp.CFrame
-                realVelocity = hrp.AssemblyLinearVelocity -- 保存真實動量
             end
             
             for _, player in ipairs(Players:GetPlayers()) do
@@ -179,39 +174,59 @@ local function StartVoid()
             end
         end
     end)
+ connections.Stepped = RunService.Stepped:Connect(function()
+        if not Flags.AbsoluteDefense then return end
+        local currentChar = LocalPlayer.Character
+        if currentChar then
+            local hrp = currentChar:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                realCFrame = hrp.CFrame
+                realVelocity = hrp.AssemblyLinearVelocity -- 捕獲真實物理速度
+            end
+            
+            -- 關閉敵人碰撞，防止物理拉扯
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer and player.Character then
+                    for _, part in ipairs(player.Character:GetChildren()) do
+                        if part:IsA("BasePart") then part.CanCollide = false end
+                    end
+                end
+            end
+        end
+    end)
 
-    -- [2. 伺服器欺騙：極端跳躍 + 套用真實速度]
+    -- 【階段 2：伺服器極限欺騙 (100億高頻 TP + 真實速度)】
     connections.Heartbeat = RunService.Heartbeat:Connect(function()
-        if not isActive then return end
+        if not Flags.AbsoluteDefense then return end
         local char = LocalPlayer.Character
         if not char then return end
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp and realCFrame then
             local newFakePos
+            
+            -- 演算法：生成新的 100 億範圍座標，並強制檢測與上次的距離是否大於 7 億
             repeat
                 newFakePos = Vector3.new(
-                    (math.random() * 2 - 1) * MAX_COORD,
-                    (math.random() * 2 - 1) * MAX_COORD,
-                    (math.random() * 2 - 1) * MAX_COORD
+                    (math.random() * 2 - 1) * MAX_COORD, -- X 軸: -100億 ~ 100億
+                    (math.random() * 2 - 1) * MAX_COORD, -- Y 軸: -100億 ~ 100億
+                    (math.random() * 2 - 1) * MAX_COORD  -- Z 軸: -100億 ~ 100億
                 )
             until (newFakePos - lastFakePos).Magnitude >= MIN_JUMP
             
             lastFakePos = newFakePos
             
-            -- 向伺服器輸出極端座標，但保持真實移動速度 (規避速度偵測)
+            -- 寫入伺服器座標與隨機旋轉，但保留【真實速度】
             hrp.CFrame = CFrame.new(newFakePos) * CFrame.Angles(
                 math.rad(math.random(-180, 180)), 
                 math.rad(math.random(-180, 180)), 
                 math.rad(math.random(-180, 180))
             )
+            -- [修改處]: 移除隨機極端速度，套用本機端擷取的真實速度
             hrp.AssemblyLinearVelocity = realVelocity
             hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
             
-            teleportCount = teleportCount + 1
-            StatsText.Text = 'Teleports: ' .. tostring(teleportCount)
-            
-            -- 縮小模組
+            -- 自我奇異點 (微縮身軀)
             for _, part in ipairs(char:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.Size = Vector3.new(0.01, 0.01, 0.01)
@@ -222,9 +237,9 @@ local function StartVoid()
         end
     end)
 
-    -- [3. 本地端視覺還原]
-    RunService:BindToRenderStep("VoidRestore", Enum.RenderPriority.Camera.Value - 10, function()
-        if not isActive then return end
+    -- 【階段 3：本地端完美還原】
+    RunService:BindToRenderStep("AegisRestore", Enum.RenderPriority.Camera.Value - 10, function()
+        if not Flags.AbsoluteDefense then return end
         local char = LocalPlayer.Character
         if char and realCFrame then
             local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -236,8 +251,9 @@ local function StartVoid()
         end
     end)
     
+    -- 爆炸免疫系統
     connections.Explosion = workspace.DescendantAdded:Connect(function(desc)
-        if isActive and desc.ClassName == "Explosion" then
+        if Flags.AbsoluteDefense and desc.ClassName == "Explosion" then
             desc.BlastPressure = 0
             desc.BlastRadius = 0
             task.defer(function() pcall(function() desc:Destroy() end) end)
@@ -245,7 +261,7 @@ local function StartVoid()
     end)
 end
 
-local function StopVoid()
+local function DeactivateLimitEngine()
     ClearConnections()
     pcall(function() workspace.FallenPartsDestroyHeight = -500 end)
     
@@ -270,41 +286,133 @@ local function StopVoid()
         end
     end
 end
+    -- [2. 完全採用 Void 原版的極端偏移座標]
+    connections.Heartbeat = RunService.Heartbeat:Connect(function()
+        if not isActive then return end
+        local char = LocalPlayer.Character
+        if not char then return end
+        
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp and realCFrame then
+            local pos = realCFrame.Position
+            
+            -- 完全還原你提供的腳本數據：X + (-1489021035.808403), Z + 1547417969.8282743
+            hrp.CFrame = CFrame.new(
+                pos.X + -1489021035.808403, 
+                pos.Y, 
+                pos.Z + 1547417969.8282743
+            )
+            
+            -- 更新計數器
+            teleportCount = teleportCount + 1
+            StatsText.Text = 'Teleports: ' .. tostring(teleportCount)
+            
+            -- 微縮防護
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Size = Vector3.new(0.01, 0.01, 0.01)
+                    part.Massless = true
+                    if part.Name == "Head" then part.Transparency = 1 end
+                end
+            end
+        end
+    end)
+
+    -- [3. 本地端視角與控制權還原]
+    RunService:BindToRenderStep("VoidRestore", Enum.RenderPriority.Camera.Value - 10, function()
+        if not isActive then return end
+        local char = LocalPlayer.Character
+        if char and realCFrame then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                hrp.CFrame = realCFrame
+            end
+        end
+    end)
+    
+    connections.Explosion = workspace.DescendantAdded:Connect(function(desc)
+        if isActive and desc.ClassName == "Explosion" then
+            desc.BlastPressure = 0
+            desc.BlastRadius = 0
+            task.defer(function() pcall(function() desc:Destroy() end) end)
+        end
+    end)
+end
+
+local function StopVoid()
+    ClearConnections()
+    pcall(function() workspace.FallenPartsDestroyHeight = -500 end)
+    
+    local char = LocalPlayer.Character
+    if char then
+        for part, size in pairs(OriginalSizes) do
+            if part and part.Parent and part:IsDescendantOf(char) then part.Size = size end
+        end
+        for motor, c0 in pairs(OriginalC0s) do
+            if motor and motor.Parent and motor:IsDescendantOf(char) then motor.C0 = c0 end
+        end
+        if char:FindFirstChild("Head") then char.Head.Transparency = 0 end
+
+        if char:FindFirstChild("Humanoid") then
+            pcall(function()
+                char.Humanoid.MaxHealth = 100
+                char.Humanoid.Health = 100
+                char.Humanoid.RequiresNeck = true
+                char.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, true)
+                char.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
+            end)
+        end
+    end
+    
+    table.clear(OriginalSizes)
+    table.clear(OriginalC0s)
+end
 
 -- ==========================================
--- [ UI 互動邏輯修復 ]
+-- [ UI 互動邏輯 (精準防連點與顏色管理) ]
 -- ==========================================
-ToggleBtn.MouseEnter:Connect(function()
-    if isActive then
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(180, 50, 70)
-    else
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(100, 60, 200)
-    end
-end)
+local isHovering = false
+local isDebouncing = false
 
-ToggleBtn.MouseLeave:Connect(function()
-    if isActive then
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 60)
-    else
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 40, 160)
-    end
-end)
-
-ToggleBtn.Activated:Connect(function()
-    isActive = not isActive
+local function UpdateButtonVisuals()
     if isActive then
         StatusText.Text = '● ACTIVE'
         StatusText.TextColor3 = Color3.fromRGB(120, 255, 160)
         ToggleBtn.Text = 'STOP'
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(160, 40, 60)
-        StartVoid()
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(180, 50, 70) or Color3.fromRGB(160, 40, 60)
     else
         StatusText.Text = '● IDLE'
         StatusText.TextColor3 = Color3.fromRGB(120, 120, 140)
         ToggleBtn.Text = 'START'
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 40, 160)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(100, 60, 200) or Color3.fromRGB(70, 40, 160)
+    end
+end
+
+ToggleBtn.MouseEnter:Connect(function()
+    isHovering = true
+    UpdateButtonVisuals()
+end)
+
+ToggleBtn.MouseLeave:Connect(function()
+    isHovering = false
+    UpdateButtonVisuals()
+end)
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    if isDebouncing then return end
+    isDebouncing = true
+    
+    isActive = not isActive
+    UpdateButtonVisuals()
+    
+    if isActive then
+        StartVoid()
+    else
         StopVoid()
     end
+    
+    task.wait(0.2)
+    isDebouncing = false
 end)
 
 LocalPlayer.CharacterAdded:Connect(function()
