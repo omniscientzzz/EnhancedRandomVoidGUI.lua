@@ -11,7 +11,6 @@ local UserInputService = game:GetService('UserInputService')
 local LocalPlayer = Players.LocalPlayer
 
 -- [ 防呆機制：清除重複的 GUI ] --
--- 避免多次執行腳本導致隱形的舊 GUI 蓋在上面，阻擋按鍵點擊
 pcall(function()
     local oldGui = LocalPlayer.PlayerGui:FindFirstChild('UltimateVoidGUI')
     if oldGui then oldGui:Destroy() end
@@ -19,18 +18,8 @@ pcall(function()
     if coreGui then coreGui:Destroy() end
 end)
 
--- [ 狀態變數 ] --
-local isActive = false
-local teleportCount = 0
-local teleportConnection = nil
-
-local toggles = {
-    AbsoluteMass = false,
-    Untouchable = false,
-    AntiBring = false,
-    AntiFling = false,
-    Noclip = false
-}
+-- [ 狀態變數與連接池 ] --
+local isMasterActive = false
 local connections = {}
 local originalPhysicalProperties = {}
 
@@ -45,7 +34,6 @@ local function GetHum()
     return char and char:FindFirstChild('Humanoid')
 end
 
--- 產生極度遙遠且不可預測的座標偏移量 (強化版 Void TP)
 local function GetRandomVoidOffset()
     local randX = (math.random() - 0.5) * 20000000000
     local randY = (math.random() - 0.5) * 20000000000 
@@ -54,29 +42,27 @@ local function GetRandomVoidOffset()
 end
 
 -- ==========================================
--- [ GUI 介面設計 - 經典融合版 ]
+-- [ 極簡 UI 介面設計 - 一鍵啟動版 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'UltimateVoidGUI'
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
--- 嘗試放入 CoreGui 防偵測與避免介面被遊戲本身干擾，若失敗則放 PlayerGui
 local success, core = pcall(function() return game:GetService("CoreGui") end)
 ScreenGui.Parent = success and core or LocalPlayer:WaitForChild("PlayerGui")
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 230, 0, 420)
-MainFrame.Position = UDim2.new(1, -250, 1, -440)
+MainFrame.Size = UDim2.new(0, 200, 0, 90)
+MainFrame.Position = UDim2.new(1, -220, 1, -200)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
--- 移除內建的 Draggable，改用下方自訂拖曳腳本，避免阻擋點擊
 MainFrame.Parent = ScreenGui
 
 local UICorner = Instance.new('UICorner')
-UICorner.CornerRadius = UDim.new(0, 12)
+UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
 
 local UIStroke = Instance.new('UIStroke')
@@ -84,48 +70,53 @@ UIStroke.Color = Color3.fromRGB(120, 40, 255)
 UIStroke.Thickness = 2
 UIStroke.Parent = MainFrame
 
--- [ 頂部標題列 ]
+-- [ 頂部拖曳標題列 ]
 local TopBar = Instance.new('Frame')
-TopBar.Size = UDim2.new(1, 0, 0, 44)
+TopBar.Size = UDim2.new(1, 0, 0, 30)
 TopBar.BackgroundColor3 = Color3.fromRGB(30, 20, 60)
 TopBar.BorderSizePixel = 0
 TopBar.Parent = MainFrame
-Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 12)
+Instance.new('UICorner', TopBar).CornerRadius = UDim.new(0, 10)
 
 local TopBarFix = Instance.new('Frame')
-TopBarFix.Size = UDim2.new(1, 0, 0, 16)
-TopBarFix.Position = UDim2.new(0, 0, 1, -16)
+TopBarFix.Size = UDim2.new(1, 0, 0, 10)
+TopBarFix.Position = UDim2.new(0, 0, 1, -10)
 TopBarFix.BackgroundColor3 = Color3.fromRGB(30, 20, 60)
 TopBarFix.BorderSizePixel = 0
 TopBarFix.Parent = TopBar
 
 local Title = Instance.new('TextLabel')
-Title.Size = UDim2.new(1, -16, 1, 0)
-Title.Position = UDim2.new(0, 14, 0, 0)
+Title.Size = UDim2.new(1, 0, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = '⚡ VOID + AEGIS'
+Title.Text = '⚡ OBLIVION PROTOCOL'
 Title.TextColor3 = Color3.fromRGB(200, 180, 255)
-Title.TextSize = 15
+Title.TextSize = 13
 Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = TopBar
 
--- [ 自訂拖曳功能 (取代不穩定的 Draggable) ] --
-local dragging
-local dragInput
-local dragStart
-local startPos
+-- [ 一鍵總開關按鈕 ]
+local MasterButton = Instance.new('TextButton')
+MasterButton.Size = UDim2.new(1, -20, 0, 40)
+MasterButton.Position = UDim2.new(0, 10, 0, 40)
+MasterButton.BackgroundColor3 = Color3.fromRGB(70, 40, 160)
+MasterButton.BorderSizePixel = 0
+MasterButton.Text = 'ACTIVATE ALL'
+MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MasterButton.TextSize = 14
+MasterButton.Font = Enum.Font.GothamBold
+MasterButton.Parent = MainFrame
+Instance.new('UICorner', MasterButton).CornerRadius = UDim.new(0, 6)
+
+-- [ 自訂拖曳功能 (綁定於 TopBar) ] --
+local dragging, dragInput, dragStart, startPos
 
 TopBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragging = true
         dragStart = input.Position
         startPos = MainFrame.Position
-        
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
         end)
     end
 end)
@@ -144,250 +135,78 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ==========================================
--- [ 上半部：經典 Void TP 區塊 ]
+-- [ 核心邏輯：一鍵切換所有狀態 ]
 -- ==========================================
-local StatusLabel = Instance.new('TextLabel')
-StatusLabel.Size = UDim2.new(1, -20, 0, 28)
-StatusLabel.Position = UDim2.new(0, 10, 0, 50)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = '● IDLE'
-StatusLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
-StatusLabel.TextSize = 13
-StatusLabel.Font = Enum.Font.GothamBold
-StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
-StatusLabel.Parent = MainFrame
+local function ToggleAll()
+    isMasterActive = not isMasterActive
+    local state = isMasterActive
 
-local ToggleButton = Instance.new('TextButton')
-ToggleButton.Size = UDim2.new(1, -20, 0, 54)
-ToggleButton.Position = UDim2.new(0, 10, 0, 80)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(70, 40, 160)
-ToggleButton.BorderSizePixel = 0
-ToggleButton.Text = 'START'
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.TextSize = 17
-ToggleButton.Font = Enum.Font.GothamBold
-ToggleButton.Parent = MainFrame
-Instance.new('UICorner', ToggleButton).CornerRadius = UDim.new(0, 10)
-
-local CountLabel = Instance.new('TextLabel')
-CountLabel.Size = UDim2.new(1, -20, 0, 22)
-CountLabel.Position = UDim2.new(0, 10, 0, 138)
-CountLabel.BackgroundTransparency = 1
-CountLabel.Text = 'Teleports: 0'
-CountLabel.TextColor3 = Color3.fromRGB(100, 100, 120)
-CountLabel.TextSize = 12
-CountLabel.Font = Enum.Font.Gotham
-CountLabel.TextXAlignment = Enum.TextXAlignment.Left
-CountLabel.Parent = MainFrame
-
-local Divider = Instance.new('Frame')
-Divider.Size = UDim2.new(1, -20, 0, 2)
-Divider.Position = UDim2.new(0, 10, 0, 165)
-Divider.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
-Divider.BorderSizePixel = 0
-Divider.Parent = MainFrame
-
--- ==========================================
--- [ 下半部：極致物理防禦區塊 ]
--- ==========================================
-local Container = Instance.new('ScrollingFrame', MainFrame)
-Container.Size = UDim2.new(1, -20, 1, -180)
-Container.Position = UDim2.new(0, 10, 0, 175)
-Container.BackgroundTransparency = 1
-Container.ScrollBarThickness = 2
-Container.ScrollBarImageColor3 = Color3.fromRGB(120, 40, 255)
-Container.UIListLayout = Instance.new('UIListLayout', Container)
-Container.UIListLayout.Padding = UDim.new(0, 6)
-Container.UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-
-local function CreateDefButton(text, colorOff, colorOn, callback)
-    local btn = Instance.new('TextButton')
-    btn.Size = UDim2.new(1, 0, 0, 32)
-    btn.BackgroundColor3 = colorOff
-    btn.Text = text .. ' [OFF]'
-    btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 12
-    Instance.new('UICorner', btn).CornerRadius = UDim.new(0, 4)
-    btn.Parent = Container
-    
-    local isOn = false
-    -- 將 Activated 改為 MouseButton1Click 更穩定
-    btn.MouseButton1Click:Connect(function()
-        isOn = not isOn
-        if isOn then
-            btn.BackgroundColor3 = colorOn
-            btn.Text = text .. ' [ON]'
-            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        else
-            btn.BackgroundColor3 = colorOff
-            btn.Text = text .. ' [OFF]'
-            btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-        end
-        callback(isOn, btn)
-    end)
-    return btn
-end
-
--- ==========================================
--- [ 邏輯區：Void TP ]
--- ==========================================
-local function UpdateUI()
-    if isActive then
-        StatusLabel.Text = '● ACTIVE'
-        StatusLabel.TextColor3 = Color3.fromRGB(120, 255, 160)
-        ToggleButton.Text = 'STOP'
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(160, 40, 60)
+    -- 介面視覺更新
+    if state then
+        MasterButton.Text = 'DEACTIVATE ALL'
+        MasterButton.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
+        UIStroke.Color = Color3.fromRGB(255, 60, 80)
+        TopBar.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
+        TopBarFix.BackgroundColor3 = Color3.fromRGB(60, 20, 30)
     else
-        StatusLabel.Text = '● IDLE'
-        StatusLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
-        ToggleButton.Text = 'START'
-        ToggleButton.BackgroundColor3 = Color3.fromRGB(70, 40, 160)
+        MasterButton.Text = 'ACTIVATE ALL'
+        MasterButton.BackgroundColor3 = Color3.fromRGB(70, 40, 160)
+        UIStroke.Color = Color3.fromRGB(120, 40, 255)
+        TopBar.BackgroundColor3 = Color3.fromRGB(30, 20, 60)
+        TopBarFix.BackgroundColor3 = Color3.fromRGB(30, 20, 60)
     end
-    CountLabel.Text = 'Teleports: ' .. teleportCount
-end
 
-local function ToggleVoid()
-    isActive = not isActive
-    
-    if isActive then
-        teleportCount = teleportCount + 1
-        UpdateUI()
-        if teleportConnection then teleportConnection:Disconnect() end
-        
-        teleportConnection = RunService.Heartbeat:Connect(function()
+    -- 斷開所有舊的連接以防重複疊加
+    for key, conn in pairs(connections) do
+        if conn then conn:Disconnect() end
+    end
+    connections = {}
+
+    if state then
+        -- [ 1. 啟動 Void TP ]
+        connections.VoidTP = RunService.Heartbeat:Connect(function()
             local hrp = GetHRP()
             if hrp then
                 local randomOffset = GetRandomVoidOffset()
                 hrp.CFrame = CFrame.new(hrp.Position.X + randomOffset.X, hrp.Position.Y + randomOffset.Y, hrp.Position.Z + randomOffset.Z)
             end
         end)
-    else
-        UpdateUI()
-        if teleportConnection then
-            teleportConnection:Disconnect()
-            teleportConnection = nil
-        end
-    end
-end
 
-ToggleButton.MouseEnter:Connect(function()
-    ToggleButton.BackgroundColor3 = isActive and Color3.fromRGB(180, 60, 80) or Color3.fromRGB(100, 60, 200)
-end)
-
-ToggleButton.MouseLeave:Connect(UpdateUI)
--- 將 Activated 改為 MouseButton1Click 更穩定
-ToggleButton.MouseButton1Click:Connect(ToggleVoid)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed then
-        if input.KeyCode == Enum.KeyCode.P then
-            ToggleVoid()
-        elseif input.KeyCode == Enum.KeyCode.RightShift then
-            MainFrame.Visible = not MainFrame.Visible
-        end
-    end
-end)
-
-LocalPlayer.CharacterAdded:Connect(function()
-    if isActive then
-        teleportCount = teleportCount + 1
-        UpdateUI()
-    end
-end)
-
--- ==========================================
--- [ 邏輯區：極致防禦系統 ]
--- ==========================================
-
--- 1. 絕對質量 (無法被撞動)
-CreateDefButton('🛡️ ABSOLUTE MASS', Color3.fromRGB(30, 30, 40), Color3.fromRGB(80, 40, 180), function(state)
-    toggles.AbsoluteMass = state
-    local char = LocalPlayer.Character
-    if not char then return end
-
-    if state then
-        local hum = GetHum()
-        if hum then
-            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-        end
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                originalPhysicalProperties[part] = part.CustomPhysicalProperties
-                part.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
-            end
-        end
-        connections.Mass = RunService.Stepped:Connect(function()
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
-                end
-            end
-        end)
-    else
-        if connections.Mass then connections.Mass:Disconnect() end
-        for part, props in pairs(originalPhysicalProperties) do
-            if part and part.Parent then
-                part.CustomPhysicalProperties = props
-            end
-        end
-    end
-end)
-
--- 2. 虛無化 (免疫碰觸擊殺)
-CreateDefButton('🚫 UNTOUCHABLE', Color3.fromRGB(30, 30, 40), Color3.fromRGB(180, 40, 80), function(state)
-    toggles.Untouchable = state
-    if state then
-        connections.Untouchable = RunService.Stepped:Connect(function()
+        -- [ 2. 啟動 Absolute Mass (絕對質量) & [ 6. 啟動 Noclip (穿牆) ] & [ 3. 啟動 Untouchable (虛無化) ]
+        -- 為了效能，將這三者合併到同一個 Stepped 循環中
+        connections.Physics = RunService.Stepped:Connect(function()
             local char = LocalPlayer.Character
             if char then
+                local hum = GetHum()
+                if hum then
+                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                end
                 for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanTouch = false end
+                    if part:IsA("BasePart") then
+                        -- 記錄原始屬性以便關閉時還原
+                        if not originalPhysicalProperties[part] then
+                            originalPhysicalProperties[part] = part.CustomPhysicalProperties
+                        end
+                        part.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
+                        part.CanTouch = false
+                        part.CanCollide = false
+                    end
                 end
             end
         end)
-    else
-        if connections.Untouchable then connections.Untouchable:Disconnect() end
-        local char = LocalPlayer.Character
-        if char then
-            for _, part in ipairs(char:GetDescendants()) do
-                if part:IsA("BasePart") then part.CanTouch = true end
-            end
-        end
-    end
-end)
 
--- 3. 反傳送綁架 (Anti-Bring)
-CreateDefButton('⚓ ANTI-BRING', Color3.fromRGB(30, 30, 40), Color3.fromRGB(40, 120, 180), function(state)
-    toggles.AntiBring = state
-    local lastPos = nil
-    if state then
+        -- [ 4. 啟動 Anti-Bring (反綁架) ]
+        local lastPos = nil
         connections.AntiBring = RunService.Heartbeat:Connect(function()
             local hrp = GetHRP()
             if hrp then
-                -- 若 Void TP 開啟中，則不干涉
-                if isActive then
-                    lastPos = hrp.Position
-                    return
-                end
-                
-                if lastPos and (hrp.Position - lastPos).Magnitude > 50 and GetHum().MoveDirection.Magnitude == 0 then
-                    hrp.CFrame = CFrame.new(lastPos)
-                else
-                    lastPos = hrp.Position
-                end
+                -- 因為 Void TP 也開著，防禦位移判斷需適應 Void TP 特性
+                lastPos = hrp.Position 
             end
         end)
-    else
-        if connections.AntiBring then connections.AntiBring:Disconnect() end
-    end
-end)
 
--- 4. 動能抹除 (Anti-Fling V2)
-CreateDefButton('🛑 VELOCITY WIPER', Color3.fromRGB(30, 30, 40), Color3.fromRGB(180, 100, 40), function(state)
-    toggles.AntiFling = state
-    if state then
+        -- [ 5. 啟動 Velocity Wiper (動能抹除) ]
         connections.AntiFling = RunService.Stepped:Connect(function()
             local hrp = GetHRP()
             if hrp then
@@ -402,24 +221,38 @@ CreateDefButton('🛑 VELOCITY WIPER', Color3.fromRGB(30, 30, 40), Color3.fromRG
                 end
             end
         end)
-    else
-        if connections.AntiFling then connections.AntiFling:Disconnect() end
-    end
-end)
 
--- 5. 穿牆 (Noclip)
-CreateDefButton('🧱 NOCLIP', Color3.fromRGB(30, 30, 40), Color3.fromRGB(80, 160, 180), function(state)
-    toggles.Noclip = state
-    if state then
-        connections.Noclip = RunService.Stepped:Connect(function()
-            local char = LocalPlayer.Character
-            if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") then part.CanCollide = false end
+    else
+        -- [ 關閉狀態：還原屬性 ]
+        local char = LocalPlayer.Character
+        if char then
+            for part, props in pairs(originalPhysicalProperties) do
+                if part and part.Parent then
+                    part.CustomPhysicalProperties = props
                 end
             end
-        end)
-    else
-        if connections.Noclip then connections.Noclip:Disconnect() end
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanTouch = true
+                    -- 碰撞(CanCollide)會由遊戲引擎自動接管還原
+                end
+            end
+        end
+        originalPhysicalProperties = {}
+    end
+end
+
+-- ==========================================
+-- [ 事件綁定 ]
+-- ==========================================
+MasterButton.MouseButton1Click:Connect(ToggleAll)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed then
+        if input.KeyCode == Enum.KeyCode.P then
+            ToggleAll()
+        elseif input.KeyCode == Enum.KeyCode.RightShift then
+            MainFrame.Visible = not MainFrame.Visible
+        end
     end
 end)
