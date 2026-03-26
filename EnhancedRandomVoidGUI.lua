@@ -1,6 +1,6 @@
--- [[ 絕對防禦 V6.5 (血幻影版)：Anti-Aim + Rage Bot 完美兼容修復版 ]] --
+-- [[ 絕對防禦 V7 (量子撕裂版)：極致 100 億高頻 TP ]] --
 -- 維護者：專屬腳本架構師
--- 特色：新增 Rage Sync 模式，解決自瞄運算崩潰、FOV判定失效等問題。
+-- 特色：三軸 ±100 億極限隨機座標，保證每幀位移 > 7 億，徹底摧毀敵方自瞄運算
 
 local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
@@ -12,21 +12,22 @@ local LocalPlayer = Players.LocalPlayer
 -- [ 清理舊版 UI ]
 -- ==========================================
 pcall(function()
-    local oldGUI = CoreGui:FindFirstChild("AegisV6GUI") or LocalPlayer:FindFirstChild("PlayerGui"):FindFirstChild("AegisV6GUI")
+    local oldGUI = CoreGui:FindFirstChild("AegisV7GUI") or LocalPlayer:FindFirstChild("PlayerGui"):FindFirstChild("AegisV7GUI")
     if oldGUI then oldGUI:Destroy() end
 end)
 
 -- ==========================================
 -- [ 全域狀態與變數 ]
 -- ==========================================
-local Flags = { 
-    AbsoluteDefense = false,
-    RageSync = false -- 預設關閉，開啟後完美兼容 Rage Bot
-}
+local Flags = { AbsoluteDefense = false }
 local connections = {}
 local realCFrame = nil
 local realVelocity = Vector3.new(0, 0, 0)
-local LIMIT_COORD = 9e8 
+local lastFakePos = Vector3.new(0, 0, 0)
+
+-- 極限參數設定
+local MAX_COORD = 10000000000 -- 100 億 (±1e10)
+local MIN_JUMP = 700000000    -- 7 億 (7e8)
 
 local OriginalSizes = {}
 local OriginalC0s = {}
@@ -42,10 +43,11 @@ local function ClearConnections()
 end
 
 -- ==========================================
--- [ 核心引擎：V6.5 狂暴同步防禦機制 ]
+-- [ 核心引擎：V7 極限躍遷機制 ]
 -- ==========================================
 local function ActivateLimitEngine()
     ClearConnections()
+    -- 關閉掉落死亡限制，否則在 -100 億的 Y 軸會瞬間死亡
     pcall(function() workspace.FallenPartsDestroyHeight = -math.huge end)
 
     local char = LocalPlayer.Character
@@ -69,7 +71,7 @@ local function ActivateLimitEngine()
         end
     end
 
-    -- 【階段 1：捕獲真實狀態 (確保你本地的移動與輸入不受干擾)】
+    -- 【階段 1：捕獲真實狀態 (保障本機端控制權)】
     connections.Stepped = RunService.Stepped:Connect(function()
         if not Flags.AbsoluteDefense then return end
         local currentChar = LocalPlayer.Character
@@ -80,7 +82,7 @@ local function ActivateLimitEngine()
                 realVelocity = hrp.AssemblyLinearVelocity
             end
             
-            -- 防撞擊與物理抹除
+            -- 關閉敵人碰撞，防止物理拉扯
             for _, player in ipairs(Players:GetPlayers()) do
                 if player ~= LocalPlayer and player.Character then
                     for _, part in ipairs(player.Character:GetChildren()) do
@@ -91,7 +93,7 @@ local function ActivateLimitEngine()
         end
     end)
 
-    -- 【階段 2：伺服器欺騙 (製造幻影與干擾敵人)】
+    -- 【階段 2：伺服器極限欺騙 (100億高頻 TP)】
     connections.Heartbeat = RunService.Heartbeat:Connect(function()
         if not Flags.AbsoluteDefense then return end
         local char = LocalPlayer.Character
@@ -99,30 +101,29 @@ local function ActivateLimitEngine()
         
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp and realCFrame then
-            if Flags.RageSync then
-                -- [ Rage Bot 兼容模式 ]
-                -- 震盪範圍縮小至 35 內，確保敵人在 Rage Bot 的 FOV 內
-                -- 速度箝制在 ±600，防止 Rage Bot 的預判數學公式回傳 NaN
-                local jitterX = math.random(-35, 35)
-                local jitterY = math.random(-15, 15)
-                local jitterZ = math.random(-35, 35)
-                
-                hrp.CFrame = CFrame.new(realCFrame.Position + Vector3.new(jitterX, jitterY, jitterZ)) 
-                             * CFrame.Angles(math.rad(180), math.rad(math.random(0, 360)), 0)
-                
-                hrp.AssemblyLinearVelocity = Vector3.new(math.random(-600, 600), math.random(-600, 600), math.random(-600, 600))
-            else
-                -- [ 純粹幻影模式 (不開 Rage Bot 時最無敵) ]
-                local limitX = (math.random() > 0.5 and 1 or -1) * LIMIT_COORD
-                local limitZ = (math.random() > 0.5 and 1 or -1) * LIMIT_COORD
-                hrp.CFrame = CFrame.new(limitX + math.random(-50,50), (LIMIT_COORD / 10), limitZ + math.random(-50,50)) 
-                             * CFrame.Angles(math.rad(180), math.rad(math.random(0, 360)), math.rad(math.random(-90, 90)))
-                             
-                hrp.AssemblyLinearVelocity = Vector3.new(math.random(-99999, 99999), math.random(-99999, 99999), math.random(-99999, 99999))
-            end
+            local newFakePos
+            
+            -- 演算法：生成新的 100 億範圍座標，並強制檢測與上次的距離是否大於 7 億
+            repeat
+                newFakePos = Vector3.new(
+                    (math.random() * 2 - 1) * MAX_COORD, -- X 軸: -100億 ~ 100億
+                    (math.random() * 2 - 1) * MAX_COORD, -- Y 軸: -100億 ~ 100億
+                    (math.random() * 2 - 1) * MAX_COORD  -- Z 軸: -100億 ~ 100億
+                )
+            until (newFakePos - lastFakePos).Magnitude >= MIN_JUMP
+            
+            lastFakePos = newFakePos
+            
+            -- 寫入伺服器座標與極端旋轉/速度
+            hrp.CFrame = CFrame.new(newFakePos) * CFrame.Angles(
+                math.rad(math.random(-180, 180)), 
+                math.rad(math.random(-180, 180)), 
+                math.rad(math.random(-180, 180))
+            )
+            hrp.AssemblyLinearVelocity = Vector3.new(math.random(-99999, 99999), math.random(-99999, 99999), math.random(-99999, 99999))
             hrp.AssemblyAngularVelocity = Vector3.new(math.random(-9999, 9999), math.random(-9999, 9999), math.random(-9999, 9999))
             
-            -- 自我奇異點
+            -- 自我奇異點 (微縮身軀)
             for _, part in ipairs(char:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.Size = Vector3.new(0.01, 0.01, 0.01)
@@ -131,24 +132,9 @@ local function ActivateLimitEngine()
                 end
             end
         end
-        
-        -- 無限放大敵人 Hitbox (輔助你的 Rage Bot)
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                local enemyHRP = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Torso")
-                if enemyHRP then
-                    enemyHRP.Size = Vector3.new(60, 60, 60)
-                    enemyHRP.Transparency = 0.7 
-                    enemyHRP.BrickColor = BrickColor.new("Bright red")
-                    enemyHRP.Material = Enum.Material.ForceField
-                    enemyHRP.CanCollide = false 
-                end
-            end
-        end
     end)
 
-    -- 【階段 3：本地端完美還原 (覆寫管線優先級)】
-    -- 使用 RenderPriority.Camera - 10 確保在你的 Rage Bot 運作前，先把你的座標還原！
+    -- 【階段 3：本地端完美還原】
     RunService:BindToRenderStep("AegisRestore", Enum.RenderPriority.Camera.Value - 10, function()
         if not Flags.AbsoluteDefense then return end
         local char = LocalPlayer.Character
@@ -162,7 +148,7 @@ local function ActivateLimitEngine()
         end
     end)
     
-    -- 防爆系統
+    -- 爆炸免疫系統
     connections.Explosion = workspace.DescendantAdded:Connect(function(desc)
         if Flags.AbsoluteDefense and desc.ClassName == "Explosion" then
             desc.BlastPressure = 0
@@ -199,77 +185,52 @@ local function DeactivateLimitEngine()
 end
 
 -- ==========================================
--- [ 雙按鈕 UI 介面 (V6.5 血幻影版) ]
+-- [ 極簡單鍵 UI 介面 (V7 量子版) ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'AegisV6GUI'
+ScreenGui.Name = 'AegisV7GUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = CoreGui end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
-MainFrame.Size = UDim2.new(0, 160, 0, 80) -- 擴大以容納第二個按鈕
+MainFrame.Size = UDim2.new(0, 160, 0, 42) -- 恢復單一按鈕大小
 MainFrame.Position = UDim2.new(0.5, -80, 0.85, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 10, 15)
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 5, 20)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Parent = ScreenGui
 Instance.new('UICorner', MainFrame).CornerRadius = UDim.new(0, 8)
 
 local UIStroke = Instance.new('UIStroke')
-UIStroke.Color = Color3.fromRGB(200, 30, 60) -- V6.5專屬血幻影紅
+UIStroke.Color = Color3.fromRGB(150, 50, 255) -- V7 專屬量子紫
 UIStroke.Thickness = 2
 UIStroke.Parent = MainFrame
 
 -- 按鈕 1：主開關
 local ToggleBtn = Instance.new('TextButton')
-ToggleBtn.Size = UDim2.new(1, -12, 0, 30)
+ToggleBtn.Size = UDim2.new(1, -12, 1, -12)
 ToggleBtn.Position = UDim2.new(0, 6, 0, 6)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(25, 15, 20)
-ToggleBtn.Text = 'Phantom [ OFF ]'
-ToggleBtn.TextColor3 = Color3.fromRGB(255, 100, 120)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 15, 30)
+ToggleBtn.Text = 'Quantum [ OFF ]'
+ToggleBtn.TextColor3 = Color3.fromRGB(180, 100, 255)
 ToggleBtn.Font = Enum.Font.GothamBlack
-ToggleBtn.TextSize = 12 
+ToggleBtn.TextSize = 13 
 ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 6)
-
--- 按鈕 2：Rage Bot 同步開關
-local SyncBtn = Instance.new('TextButton')
-SyncBtn.Size = UDim2.new(1, -12, 0, 30)
-SyncBtn.Position = UDim2.new(0, 6, 0, 42)
-SyncBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-SyncBtn.Text = 'Rage Sync: OFF'
-SyncBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
-SyncBtn.Font = Enum.Font.GothamBold
-SyncBtn.TextSize = 11 
-SyncBtn.Parent = MainFrame
-Instance.new('UICorner', SyncBtn).CornerRadius = UDim.new(0, 6)
 
 ToggleBtn.MouseButton1Click:Connect(function()
     Flags.AbsoluteDefense = not Flags.AbsoluteDefense
     if Flags.AbsoluteDefense then
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(50, 10, 20)
-        ToggleBtn.TextColor3 = Color3.fromRGB(255, 50, 80)
-        ToggleBtn.Text = 'Phantom [ ON ]'
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 10, 60)
+        ToggleBtn.TextColor3 = Color3.fromRGB(200, 150, 255)
+        ToggleBtn.Text = 'Quantum [ ON ]'
         ActivateLimitEngine()
     else
-        ToggleBtn.BackgroundColor3 = Color3.fromRGB(25, 15, 20)
-        ToggleBtn.TextColor3 = Color3.fromRGB(255, 100, 120)
-        ToggleBtn.Text = 'Phantom [ OFF ]'
+        ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 15, 30)
+        ToggleBtn.TextColor3 = Color3.fromRGB(180, 100, 255)
+        ToggleBtn.Text = 'Quantum [ OFF ]'
         DeactivateLimitEngine()
-    end
-end)
-
-SyncBtn.MouseButton1Click:Connect(function()
-    Flags.RageSync = not Flags.RageSync
-    if Flags.RageSync then
-        SyncBtn.BackgroundColor3 = Color3.fromRGB(150, 100, 20)
-        SyncBtn.TextColor3 = Color3.fromRGB(255, 200, 50)
-        SyncBtn.Text = 'Rage Sync: ON (Safe)'
-    else
-        SyncBtn.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        SyncBtn.TextColor3 = Color3.fromRGB(150, 150, 150)
-        SyncBtn.Text = 'Rage Sync: OFF'
     end
 end)
 
