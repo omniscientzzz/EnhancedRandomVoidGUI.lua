@@ -2,8 +2,7 @@ local fenv = getfenv()
 fenv.require = function() end
 
 -- [[ VOID x AEGIS V20: THE SINGULARITY (奇點) ]] --
--- 專為對抗頂級 UE (Unnamed ESP) 與高端 Aimbot 開發
--- 利用量子亂數瞬移躲避 Hitscan，並用溢出數值崩潰敵方預判腳本
+-- 完整原版 V20 防禦 + 整合用戶指定的 2048 HitboxHead 絕對路徑擴張
 
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
@@ -18,7 +17,6 @@ local toggleKey = Enum.KeyCode.P
 local OVERFLOW_VAL = 2e22 -- 溢出數值，用於崩潰敵方 Aimbot 預判
 local QUANTUM_RADIUS = 500000 -- 半徑 50 萬格的量子閃現
 local FORCEFIELD_RADIUS = 100 -- 黑洞力場半徑擴大
-local ENEMY_HITBOX_SIZE = Vector3.new(60, 60, 60) 
 
 local isActive = false
 local realCFrame = nil
@@ -33,7 +31,7 @@ local workspaceConnection = nil
 local characterConnection = nil
 
 -- ==========================================
--- [ 異步 Hitbox 處理 (維持效能) ]
+-- [ 異步 Hitbox 處理 (整合 2048 HitboxHead) ]
 -- ==========================================
 task.spawn(function()
     while true do
@@ -41,12 +39,27 @@ task.spawn(function()
         if isActive then
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
-                    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
-                    if hrp and hrp.Size.X < ENEMY_HITBOX_SIZE.X then
-                        hrp.Size = ENEMY_HITBOX_SIZE
-                        hrp.Transparency = 0.7
-                        hrp.CanCollide = false
-                    end
+                    
+                    -- 【用戶指定的絕對路徑 2048 Hitbox 擴張】
+                    pcall(function()
+                        if workspace:FindFirstChild(plr.Name) and workspace[plr.Name]:FindFirstChild("HitboxHead") then
+                            workspace[plr.Name].HitboxHead.Size = Vector3.new(2048, 2048, 2048)
+                            workspace[plr.Name].HitboxHead.Transparency = 0.85
+                            workspace[plr.Name].HitboxHead.CanCollide = false
+                            workspace[plr.Name].HitboxHead.Massless = true
+                        end
+                    end)
+
+                    -- 【備用防護：如果遊戲沒有 HitboxHead，我們連同 HumanoidRootPart 一起放大】
+                    pcall(function()
+                        local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                        if hrp and hrp.Size.X < 2000 then
+                            hrp.Size = Vector3.new(2048, 2048, 2048)
+                            hrp.Transparency = 0.85
+                            hrp.CanCollide = false
+                        end
+                    end)
+                    
                 end
             end
         end
@@ -64,9 +77,9 @@ if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("Player
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 310, 0, 270)
-MainFrame.Position = UDim2.new(0.85, -50, 0.75, -70)
-MainFrame.BackgroundColor3 = Color3.fromRGB(5, 0, 15) -- 極致黑洞深色
+MainFrame.Size = UDim2.new(0, 310, 0, 290) -- 稍微加高以容納新文字
+MainFrame.Position = UDim2.new(0.85, -50, 0.75, -90)
+MainFrame.BackgroundColor3 = Color3.fromRGB(5, 0, 15) 
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
@@ -110,10 +123,10 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 140)
+StatsText.Size = UDim2.new(1, 0, 0, 160)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] Quantum Jitter (500k Studs)\n[✓] Aimbot Crash Inject (2e22)\n[✓] Blackhole Shield (100 Studs)\n[✓] True Ghosting & Noclip\n[✓] Zero-Point Hitbox Engine\n[✓] UE & ESP Bypass Denial'
+StatsText.Text = '[✓] Quantum Jitter (500k Studs)\n[✓] Aimbot Crash Inject (2e22)\n[✓] Blackhole Shield (100 Studs)\n[✓] True Ghosting & Noclip\n[✓] UE & ESP Bypass Denial\n[✓] 2048x HitboxHead Expander'
 StatsText.TextColor3 = Color3.fromRGB(220, 180, 255)
 StatsText.TextSize = 12
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
@@ -217,7 +230,7 @@ local function StartApotheosis()
             -- 量子閃現：不再只是待在固定高空，而是每 0.01 秒在 50 萬格內隨機傳送
             local quantumOffset = Vector3.new(
                 math.random(-QUANTUM_RADIUS, QUANTUM_RADIUS),
-                math.random(100000, QUANTUM_RADIUS), -- 確保高度足夠高
+                math.random(100000, QUANTUM_RADIUS),
                 math.random(-QUANTUM_RADIUS, QUANTUM_RADIUS)
             )
             
@@ -238,10 +251,19 @@ end
 
 local function RestoreHitboxes()
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local enemyHrp = plr.Character.HumanoidRootPart
-            enemyHrp.Size = Vector3.new(2, 2, 1) 
-            enemyHrp.Transparency = 1
+        if plr ~= LocalPlayer then
+            pcall(function()
+                if workspace:FindFirstChild(plr.Name) and workspace[plr.Name]:FindFirstChild("HitboxHead") then
+                    workspace[plr.Name].HitboxHead.Size = Vector3.new(2, 1, 1)
+                    workspace[plr.Name].HitboxHead.Transparency = 0
+                end
+            end)
+            pcall(function()
+                if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    plr.Character.HumanoidRootPart.Size = Vector3.new(2, 2, 1)
+                    plr.Character.HumanoidRootPart.Transparency = 1
+                end
+            end)
         end
     end
 end
