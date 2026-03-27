@@ -1,10 +1,10 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V13.0: OBLIVION (ANTI-MANIPULATION) ]] --
--- 狀態：極端防禦模式
--- 目標：反制 Projectile Manipulation, Bullet Mimic, Hitbox Teleport
--- 原理：CFrame 空間剝離、NaN 數據毒化、Hitbox 徹底消除
+-- [[ VOID x AEGIS V14.0: ABSOLUTE ZERO ]] --
+-- 狀態：神權防禦模式 (God-Tier Anti-Manipulation)
+-- 目標：反制 Resolver, Advanced Mimic, Server-Side Projectile Teleport
+-- 原理：混沌隨機偏移、真·NaN 向量毒化、動畫引擎破壞
 
 local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
@@ -13,11 +13,16 @@ local CoreGui = game:GetService('CoreGui')
 local LocalPlayer = Players.LocalPlayer
 
 -- ==========================================
--- [ 系統狀態 ]
+-- [ 系統狀態與常數 ]
 -- ==========================================
 local isActive = false
 local connections = {}
 local toggleKey = Enum.KeyCode.P
+
+-- 真·NaN (Not a Number) 生成
+-- 任何外掛嘗試將 NaN 帶入距離或軌跡公式，都會導致腳本錯誤 (Error)
+local NaN = 0/0
+local NaNVector = Vector3.new(NaN, NaN, NaN)
 
 local function ClearConnections()
     for _, conn in pairs(connections) do
@@ -29,19 +34,19 @@ local function ClearConnections()
 end
 
 -- ==========================================
--- [ 終極警示 UI 建構 ]
+-- [ 終極警示 UI 建構 (V14 絕對零度版) ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'VoidOblivionGUI'
+ScreenGui.Name = 'VoidAbsoluteZeroGUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = CoreGui end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 250, 0, 200)
-MainFrame.Position = UDim2.new(0.85, -10, 0.75, -10)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 0, 5) -- 深邃的血紅色背景
+MainFrame.Size = UDim2.new(0, 260, 0, 220)
+MainFrame.Position = UDim2.new(0.85, -20, 0.75, -20)
+MainFrame.BackgroundColor3 = Color3.fromRGB(5, 10, 20) -- 深邃冰冷色調
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
@@ -51,14 +56,14 @@ local MainCorner = Instance.new('UICorner', MainFrame)
 MainCorner.CornerRadius = UDim.new(0, 6)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(255, 30, 30)
+MainStroke.Color = Color3.fromRGB(0, 150, 255)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '☢ V13 OBLIVION'
-TitleText.TextColor3 = Color3.fromRGB(255, 50, 50)
+TitleText.Text = '❄ V14 ABSOLUTE ZERO'
+TitleText.TextColor3 = Color3.fromRGB(0, 200, 255)
 TitleText.TextSize = 16
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
@@ -76,7 +81,7 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 50, 100)
 ToggleBtn.Text = 'ENGAGE [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 15
@@ -85,17 +90,17 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 60)
+StatsText.Size = UDim2.new(1, 0, 0, 80)
 StatsText.Position = UDim2.new(0, 0, 0, 120)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[!] CFrame Offset: Active\n[!] Math Overload: 9e9 (Toxic)\n[!] Rig Disconnect: True'
-StatsText.TextColor3 = Color3.fromRGB(255, 100, 100)
+StatsText.Text = '[!] Chaos Jitter: Active\n[!] Velocity: 0/0 (NaN)\n[!] Rig Animator: Destroyed\n[!] Hitbox: Desynced'
+StatsText.TextColor3 = Color3.fromRGB(100, 200, 255)
 StatsText.TextSize = 11
 StatsText.Font = Enum.Font.Code
 StatsText.Parent = MainFrame
 
 -- ==========================================
--- [ 引擎：反操縱核心邏輯 ]
+-- [ 引擎：絕對反制邏輯 ]
 -- ==========================================
 local function StartEngine()
     ClearConnections()
@@ -104,63 +109,70 @@ local function StartEngine()
     if not char then return end
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    local head = char:FindFirstChild("Head")
     local hum = char:FindFirstChild("Humanoid")
     
     if not hrp or not hum then return end
 
-    -- 【1. Hitbox 徹底毀滅 (Rig Destruction)】
-    -- Projectile Manipulation 需要實體來判定擊中。
-    -- 我們不僅縮小頭部，還把所有除了 HRP 以外的身體部位的碰撞與重量歸零，
-    -- 甚至破壞部分外觀關聯，讓伺服器無法正確計算子彈與 Hitbox 的交集。
+    -- 【1. Hitbox 徹底隔離與動畫凍結】
+    -- 外掛經常鎖定頭部或依賴動畫同步來預測位置。
+    -- 我們直接摧毀 Animator，讓你在伺服器上變成一個不會動的僵硬模型，切斷動畫預測。
+    -- 同時刪除所有飾品 (Accessories)，因為很多外掛會掃描飾品作為額外的判定點。
+    pcall(function()
+        local animator = hum:FindFirstChildOfClass("Animator")
+        if animator then animator:Destroy() end
+    end)
+
+    for _, v in pairs(char:GetDescendants()) do
+        if v:IsA("Accessory") or v:IsA("Tool") then
+            pcall(function() v:Destroy() end)
+        end
+    end
+
+    -- 半透明化與無碰撞處理
     for _, part in pairs(char:GetChildren()) do
-        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+        if part:IsA("BasePart") then
             pcall(function()
                 part.CanCollide = false
                 part.Massless = true
-                -- 將體積壓縮到微觀級別
-                part.Size = Vector3.new(0.01, 0.01, 0.01) 
-                part.Transparency = 0.5 -- 半透明化以利自己觀察
+                part.Transparency = 0.5
             end)
         end
     end
 
     local RealPosition = hrp.CFrame
-    local SpoofOffset = Vector3.new(0, 99999, 0) -- 將伺服器判定點移至 10 萬格高的虛空
 
-    -- 【2. 空間剝離 (Quantum CFrame Offset)】
-    -- 這是對抗 Mimic / Projectile Teleport 最有效的手段。
-    -- 我們在物理運算前 (Heartbeat) 將角色傳送到十萬格高的天空。
-    -- 這樣對方的外掛讀取你的座標時，會讀到天空中的座標，並把子彈傳送到天空。
+    -- 【2. 混沌震盪與真·虛無向量 (Chaos Jitter & True NaN)】
+    -- 這是在 Heartbeat (物理模擬後，網路同步前) 執行的最核心破壞。
     connections.Heartbeat = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not currentHrp then return end
 
-        -- 記錄你真實想去的位置
+        -- 記錄你真實操作的座標
         RealPosition = currentHrp.CFrame
         
-        -- 將伺服器上的 HRP 丟到虛空，讓外掛把子彈打向虛空
-        currentHrp.CFrame = RealPosition + SpoofOffset
+        -- 生成極端混亂的隨機座標 (X, Y, Z 皆在十萬格範圍內亂跳)
+        -- Resolver 根本無法預測完全隨機的數值，Mimic 傳送點會瞬間崩潰
+        local chaosOffset = Vector3.new(
+            math.random(-100000, 100000),
+            math.random(50000, 150000), 
+            math.random(-100000, 100000)
+        )
+        currentHrp.CFrame = RealPosition + chaosOffset
 
-        -- 【3. 數據毒化 (Math Overload / NaN Venom)】
-        -- 故意將速度設為 Roblox 引擎容許的極大值 (9e9 或無窮大)。
-        -- 高階外掛在計算 Manipulation 軌跡時，通常會用到 Vector3 數學。
-        -- 當他們把這個巨大的數字代入公式時，會引發 Lua 腳本中的 "NaN (Not a Number)" 錯誤，
-        -- 這有極高機率讓對方的外掛直接當機 (Crash) 或射出無效的射線。
-        currentHrp.AssemblyLinearVelocity = Vector3.new(9e9, 9e9, 9e9)
-        currentHrp.AssemblyAngularVelocity = Vector3.new(9e9, 9e9, 9e9)
+        -- 將速度設為 NaN (0/0)
+        -- 當外掛讀取你的速度來計算「彈道提前量」或「傳送終點」時，
+        -- NaN 會像病毒一樣感染他們的數學公式，導致外掛崩潰 (Math Error)
+        currentHrp.AssemblyLinearVelocity = NaNVector
+        currentHrp.AssemblyAngularVelocity = NaNVector
     end)
     
-    -- 【4. 本機視覺還原 (Client Rendering Hook)】
-    -- 如果我們只在 Heartbeat 改變位置，你的畫面會一直卡在天空。
-    -- 必須在畫面渲染前 (RenderStepped)，把你的角色「拉回來」，讓你可以正常遊玩。
-    -- (伺服器依然會認為你在天空，但你的客戶端畫面看起來在地上)
+    -- 【3. 本機畫面與物理還原 (Client Stabilizer)】
+    -- 在畫面渲染前，把你從混亂的虛空中拉回真實位置，讓你可以正常走動與瞄準。
     connections.RenderStepped = RunService.RenderStepped:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if currentHrp then
-            -- 在畫面上把角色拉回真正的地面位置
             currentHrp.CFrame = RealPosition
         end
     end)
@@ -170,7 +182,6 @@ local function StopEngine()
     ClearConnections()
     local char = LocalPlayer.Character
     if char then
-        -- 嘗試恢復原本的物理狀態 (需重生才能完全恢復外觀)
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then
             hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
@@ -192,17 +203,17 @@ local isDebouncing = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = '☢ OBLIVION ACTIVE'
-        StatusText.TextColor3 = Color3.fromRGB(255, 50, 50)
-        MainStroke.Color = Color3.fromRGB(255, 10, 10)
+        StatusText.Text = '❄ OBLIVION: ABSOLUTE'
+        StatusText.TextColor3 = Color3.fromRGB(0, 255, 255)
+        MainStroke.Color = Color3.fromRGB(0, 255, 255)
         ToggleBtn.Text = 'DISENGAGE [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(200, 0, 0)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 100, 200) or Color3.fromRGB(0, 150, 255)
     else
         StatusText.Text = 'SYSTEM OFFLINE'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
-        MainStroke.Color = Color3.fromRGB(100, 0, 0)
+        MainStroke.Color = Color3.fromRGB(0, 100, 150)
         ToggleBtn.Text = 'ENGAGE [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(120, 0, 0) or Color3.fromRGB(100, 0, 0)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 60, 120) or Color3.fromRGB(0, 50, 100)
     end
 end
 
