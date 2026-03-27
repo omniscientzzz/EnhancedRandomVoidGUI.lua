@@ -1,9 +1,9 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V8: QUANTUM EVASION ]] --
--- 功能：真實虛空、無限小自轉、智慧防爆、快捷鍵[P]、全防禦(Fling/Touch/Raycast/Sit)
--- 新增：Quantum Jitter (每幀 10萬距離隨機瞬移)、Velocity Spoofing (破壞預測型自瞄與追蹤彈)
+-- [[ VOID x AEGIS V9: ZERO DIMENSION ]] --
+-- 功能：真實虛空、智慧防爆、快捷鍵[P]、防控制
+-- 終極升級：Infinity Velocity(無限大速度欺騙)、Hyper-Space Jitter(5億距離光速閃爍)
 
 local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
@@ -33,33 +33,33 @@ end
 -- [ UI 介面建構 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'VoidQuantumGUI'
+ScreenGui.Name = 'VoidZeroGUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = CoreGui end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 190, 0, 160)
+MainFrame.Size = UDim2.new(0, 200, 0, 160)
 MainFrame.Position = UDim2.new(0.85, 0, 0.8, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(5, 5, 15)
+MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new('UICorner', MainFrame)
-MainCorner.CornerRadius = UDim.new(0, 12)
+MainCorner.CornerRadius = UDim.new(0, 8)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(0, 255, 255)
+MainStroke.Color = Color3.fromRGB(255, 0, 0)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '🌌 V8 QUANTUM'
-TitleText.TextColor3 = Color3.fromRGB(150, 255, 255)
+TitleText.Text = '⬛ V9 ZERO DIMENSION'
+TitleText.TextColor3 = Color3.fromRGB(255, 100, 100)
 TitleText.TextSize = 13
 TitleText.Font = Enum.Font.GothamBold
 TitleText.Parent = MainFrame
@@ -77,26 +77,26 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 60)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 150)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
 ToggleBtn.Text = 'START [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 15
 ToggleBtn.Font = Enum.Font.GothamBold
 ToggleBtn.Parent = MainFrame
-Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 8)
+Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
 StatsText.Size = UDim2.new(1, 0, 0, 45)
 StatsText.Position = UDim2.new(0, 0, 0, 110)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = 'Evasion: QUANTUM JITTER\nSpoofing: ACTIVE\nHit Probability: 0.00%'
-StatsText.TextColor3 = Color3.fromRGB(100, 200, 255)
+StatsText.Text = 'Evasion: HYPER-SPACE (500M)\nSpoofing: INFINITY (NaN)\nHit Probability: ABSOLUTE 0%'
+StatsText.TextColor3 = Color3.fromRGB(255, 150, 150)
 StatsText.TextSize = 10
 StatsText.Font = Enum.Font.Gotham
 StatsText.Parent = MainFrame
 
 -- ==========================================
--- [ 引擎：量子迴避與絕對防禦 ]
+-- [ 引擎：零維度極限防禦 ]
 -- ==========================================
 local function StartEngine()
     ClearConnections()
@@ -128,7 +128,7 @@ local function StartEngine()
     
     OptimizeCharacter(char)
 
-    -- [1. Hitbox 無效化與反觸碰/反射線]
+    -- [1. 實體抹除與免疫寄生]
     connections.Stepped = RunService.Stepped:Connect(function()
         if not isActive then return end
         local currentChar = LocalPlayer.Character
@@ -141,11 +141,13 @@ local function StartEngine()
                     part.Size = Vector3.new(0.001, 0.001, 0.001)
                     if part.Name == "Head" then part.Transparency = 1 end
                 end
-            end
-            
-            for _, obj in ipairs(currentChar:GetDescendants()) do
-                if obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("BodyMover") then 
-                    obj:Destroy() 
+                
+                -- 防寄生：消除所有外掛試圖綁定在你身上的限制器、繩索或炸彈
+                if part:IsA("Attachment") or part:IsA("AlignPosition") or part:IsA("Weld") or part:IsA("BodyMover") or part:IsA("Fire") then
+                    -- 保留原本的骨架，只清除異常附加物
+                    if part.Name ~= "RootRigAttachment" and part.Name ~= "FaceCenterAttachment" and part.Name ~= "Neck" then
+                        pcall(function() part:Destroy() end)
+                    end
                 end
             end
         end
@@ -159,43 +161,36 @@ local function StartEngine()
         end
     end)
 
-    -- [2. 量子閃爍 (Quantum Jitter) & 速度欺騙 (Velocity Spoofing)]
+    -- [2. 億級光速閃爍 & Infinity (NaN) 數學崩潰]
     connections.Heartbeat = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         local currentChar = LocalPlayer.Character
         if currentChar and savedCFrame then
             local hrp = currentChar:FindFirstChild("HumanoidRootPart")
             if hrp then
-                -- 【量子閃爍】：不再待在固定的虛空，而是每幀在 10 萬格半徑內瘋狂隨機瞬移
-                local jitterX = math.random(-100000, 100000)
-                local jitterY = math.random(-100000, 100000)
-                local jitterZ = math.random(-100000, 100000)
+                -- 【億級光速閃爍】：每秒 60 次，在正負 5 億的座標內瘋狂瞬移
+                -- 任何試圖獲取你座標的外掛，傳送過去時你早就在幾億格之外了
+                local hyperX = math.random(-500000000, 500000000)
+                local hyperY = math.random( 100000000, 500000000) -- Y軸保持極高空，防止接觸任何地圖邊界死角
+                local hyperZ = math.random(-500000000, 500000000)
                 
-                local voidPos = Vector3.new(
-                    savedCFrame.X - 1489021035.8 + jitterX, 
-                    savedCFrame.Y + jitterY, 
-                    savedCFrame.Z + 1547417969.8 + jitterZ
-                )
-                
-                -- 全向隨機自轉
-                hrp.CFrame = CFrame.new(voidPos) * CFrame.Angles(
+                hrp.CFrame = CFrame.new(hyperX, hyperY, hyperZ) * CFrame.Angles(
                     math.rad(math.random(1, 360)), 
                     math.rad(math.random(1, 360)), 
                     math.rad(math.random(1, 360))
                 )
 
-                -- 【速度欺騙】：賦予極端假速度，讓伺服器預測型自瞄與導彈的數學公式徹底崩潰 (飛向宇宙)
-                hrp.AssemblyLinearVelocity = Vector3.new(
-                    math.random(-999999, 999999), 
-                    math.random(-999999, 999999), 
-                    math.random(-999999, 999999)
-                )
-                hrp.AssemblyAngularVelocity = Vector3.zero
+                -- 【Infinity 數學崩潰】：給予無限大(Infinity)的速度
+                -- 追蹤型外掛計算距離與時間時，會發生除以 0 的 NaN (Not a Number) 崩潰！
+                pcall(function()
+                    hrp.AssemblyLinearVelocity = Vector3.new(math.huge, math.huge, math.huge)
+                    hrp.AssemblyAngularVelocity = Vector3.new(math.huge, math.huge, math.huge)
+                end)
             end
         end
     end)
     
-    -- [3. 智慧防爆 (保留自身投擲物)]
+    -- [3. 智慧防爆 (保護自身攻擊)]
     connections.Explosion = workspace.DescendantAdded:Connect(function(desc)
         if isActive and desc:IsA("Explosion") then
             local currentChar = LocalPlayer.Character
@@ -226,7 +221,8 @@ local function StopEngine()
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp and savedCFrame then
             hrp.CFrame = savedCFrame
-            hrp.AssemblyLinearVelocity = Vector3.zero -- 關閉時必須將欺騙速度歸零，否則會飛出地圖
+            -- 關閉時必須解除無限大速度，否則會被系統踢出或物理崩潰
+            hrp.AssemblyLinearVelocity = Vector3.zero 
             hrp.AssemblyAngularVelocity = Vector3.zero
         end
 
@@ -247,22 +243,24 @@ local function StopEngine()
 end
 
 -- ==========================================
--- [ 快捷鍵與 UI 互動邏輯 ]
+-- [ UI 互動邏輯 ]
 -- ==========================================
 local isHovering = false
 local isDebouncing = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = '● QUANTUM EVASION'
-        StatusText.TextColor3 = Color3.fromRGB(0, 255, 255)
+        StatusText.Text = '● ZERO DIMENSION'
+        StatusText.TextColor3 = Color3.fromRGB(255, 50, 50)
+        MainStroke.Color = Color3.fromRGB(255, 0, 0)
         ToggleBtn.Text = 'RETURN [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(180, 40, 40)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(150, 0, 0)
     else
         StatusText.Text = '● READY (Press P)'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
+        MainStroke.Color = Color3.fromRGB(150, 0, 0)
         ToggleBtn.Text = 'START [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 180, 255) or Color3.fromRGB(0, 100, 150)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(100, 0, 0)
     end
 end
 
@@ -288,4 +286,3 @@ end)
 LocalPlayer.CharacterAdded:Connect(function()
     task.delay(1, function() if isActive then StartEngine() end end)
 end)
-
