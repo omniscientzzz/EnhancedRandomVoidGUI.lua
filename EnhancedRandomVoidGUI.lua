@@ -1,8 +1,9 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V19.0: APOTHEOSIS (神化) ]] --
--- 狀態：神化模式 (V1~V18 全面繼承 + 遠端防殺 + 爆炸免疫 + 無限Hitbox)
+-- [[ VOID x AEGIS V19.2: PURE APOTHEOSIS (無 Hook 純淨版) ]] --
+-- 移除了 hookmetamethod，解決與其他腳本的衝突及潛在的底層卡頓
+-- 保留了異步處理、淺層遍歷與核心無敵機制
 
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
@@ -14,12 +15,12 @@ local toggleKey = Enum.KeyCode.P
 -- ==========================================
 -- [ 核心參數設置 ]
 -- ==========================================
-local v15 = 2e22 -- 速度過載 (X/Z)
-local v16 = 2e22 -- 速度過載 (Y)
-local SHADOW_OFFSET = Vector3.new(0, 50000, 0) -- 物理脫離高度
-local JITTER_STRENGTH = 10 -- 輔瞄破壞強度
-local ENEMY_HITBOX_SIZE = Vector3.new(60, 60, 60) -- 敵人判定框大小
-local PROJECTILE_SIZE = Vector3.new(40, 40, 40) -- 你的投擲物/子彈擴張大小
+local v15 = 2e22 
+local v16 = 2e22 
+local SHADOW_OFFSET = Vector3.new(0, 50000, 0)
+local JITTER_STRENGTH = 10 
+local ENEMY_HITBOX_SIZE = Vector3.new(60, 60, 60) 
+local PROJECTILE_SIZE = Vector3.new(40, 40, 40) 
 
 local isActive = false
 local realCFrame = nil
@@ -29,27 +30,29 @@ local steppedConnection = nil
 local renderConnection = nil
 local heartbeatConnection = nil
 local workspaceConnection = nil
+local characterConnection = nil
 
 -- ==========================================
--- [ V19: Anti-Remote Kill (Meta-Hooking) ]
+-- [ 異步 Hitbox 處理 (防止卡頓) ]
 -- ==========================================
--- 攔截並阻擋惡意遠端事件 (需執行器支援 hookmetamethod)
-if hookmetamethod then
-    local oldNamecall
-    oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+task.spawn(function()
+    while true do
+        task.wait(0.5) -- 每 0.5 秒更新一次
         if isActive then
-            local method = getnamecallmethod()
-            if method == "FireServer" or method == "InvokeServer" then
-                local name = string.lower(tostring(self.Name))
-                -- 攔截常見的擊殺/傷害/懲罰遠端
-                if name:match("kill") or name:match("damage") or name:match("punish") or name:match("kick") or name:match("ban") then
-                    return nil -- 吞噬該請求，保護本體
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character then
+                    local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+                    -- 只有在尚未放大的情況下才修改，避免重複觸發屬性更新
+                    if hrp and hrp.Size.X < ENEMY_HITBOX_SIZE.X then
+                        hrp.Size = ENEMY_HITBOX_SIZE
+                        hrp.Transparency = 0.7
+                        hrp.CanCollide = false
+                    end
                 end
             end
         end
-        return oldNamecall(self, ...)
-    end)
-end
+    end
+end)
 
 -- ==========================================
 -- [ GUI 建構 ]
@@ -62,7 +65,7 @@ if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("Player
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 280, 0, 280)
+MainFrame.Size = UDim2.new(0, 280, 0, 260)
 MainFrame.Position = UDim2.new(0.85, -20, 0.75, -60)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 5, 20)
 MainFrame.BorderSizePixel = 0
@@ -74,15 +77,15 @@ local MainCorner = Instance.new('UICorner', MainFrame)
 MainCorner.CornerRadius = UDim.new(0, 8)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(200, 0, 255)
+MainStroke.Color = Color3.fromRGB(0, 255, 150)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '🌌 V19 APOTHEOSIS'
-TitleText.TextColor3 = Color3.fromRGB(220, 150, 255)
-TitleText.TextSize = 16
+TitleText.Text = '⚡ V19.2 (NO HOOK)'
+TitleText.TextColor3 = Color3.fromRGB(150, 255, 200)
+TitleText.TextSize = 15
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
 
@@ -99,7 +102,7 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(60, 20, 80)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 60, 40)
 ToggleBtn.Text = 'ASCEND [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 14
@@ -108,11 +111,11 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 150)
+StatsText.Size = UDim2.new(1, 0, 0, 130)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] V1-V17 Core Mechanics\n[✓] V19: Anti-Remote Kill\n[✓] V19: Explosion Immunity\n[✓] V19: Anti-Seat/Auto-Mount\n[✓] V19: Giant Enemy Hitboxes\n[✓] V19: Projectile Expansion'
-StatsText.TextColor3 = Color3.fromRGB(240, 200, 255)
+StatsText.Text = '[✓] Core God Mode\n[✗] Hook Removed (Better FPS)\n[✓] Explosion Immunity\n[✓] Anti-Seat (Event Driven)\n[✓] Async Hitboxes (No Lag)\n[✓] Smart Projectiles'
+StatsText.TextColor3 = Color3.fromRGB(200, 255, 220)
 StatsText.TextSize = 11
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
 StatsText.Font = Enum.Font.Code
@@ -129,69 +132,74 @@ local function StartApotheosis()
     local hum = char:FindFirstChild("Humanoid")
     if not hrp or not hum then return end
 
-    -- [V5] Anti-Ragdoll
+    -- 關閉跌倒與物理狀態
     hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
     hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
     hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
     
     realCFrame = hrp.CFrame
 
-    -- [V19] Workspace 監聽 (防爆炸 & 投擲物擴張)
+    -- [優化] 防強制黏著改為事件驅動
+    characterConnection = char.ChildAdded:Connect(function(child)
+        if isActive and child:IsA("Weld") and child.Name == "SeatWeld" then
+            task.delay(0, function() pcall(function() child:Destroy() end) end)
+        end
+    end)
+
+    -- [優化] 投擲物監聽早退機制
     workspaceConnection = workspace.DescendantAdded:Connect(function(desc)
         if not isActive then return end
         
-        -- 防爆炸：瞬間抹除爆炸威力
+        -- 直接消除爆炸傷害
         if desc:IsA("Explosion") then
             desc.BlastRadius = 0
             desc.BlastPressure = 0
-            desc.DestroyJointRadiusPercent = 0
-            task.delay(0, function() desc:Destroy() end)
+            task.delay(0, function() pcall(function() desc:Destroy() end) end)
+            return
         end
         
-        -- 投擲物/子彈擴張 (啟發式偵測：剛生成、高速、離我很近)
         if desc:IsA("BasePart") then
-            task.delay(0.05, function() -- 等待物理引擎賦予速度
-                pcall(function()
-                    local myChar = LocalPlayer.Character
-                    if myChar and myChar.PrimaryPart and desc.AssemblyLinearVelocity.Magnitude > 30 then
-                        local dist = (desc.Position - myChar.PrimaryPart.Position).Magnitude
-                        if dist < 20 then -- 判定為我的投擲物
-                            desc.Size = PROJECTILE_SIZE
-                            desc.Transparency = 0.5
-                            desc.CanCollide = false
-                        end
-                    end
-                end)
+            local myChar = LocalPlayer.Character
+            if not myChar or not myChar.PrimaryPart then return end
+            
+            pcall(function()
+                -- 只有在靠近玩家時才處理投擲物
+                if (desc.Position - myChar.PrimaryPart.Position).Magnitude < 15 then
+                    task.delay(0.05, function()
+                        pcall(function()
+                            if desc.AssemblyLinearVelocity.Magnitude > 30 then
+                                desc.Size = PROJECTILE_SIZE
+                                desc.Transparency = 0.5
+                                desc.CanCollide = false
+                            end
+                        end)
+                    end)
+                end
             end)
         end
     end)
 
-    -- [V14 + V19] Heartbeat (穿牆 + 防強制上車)
+    -- [優化] 每幀穿牆與防坐下
     heartbeatConnection = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         local currentChar = LocalPlayer.Character
         if currentChar then
-            -- 穿牆
-            for _, part in pairs(currentChar:GetDescendants()) do
+            -- 使用淺層掃描，極大提升效能
+            for _, part in ipairs(currentChar:GetChildren()) do
                 if part:IsA("BasePart") and part.CanCollide then
                     part.CanCollide = false
                 end
             end
-            -- 防強制上車/黏著
+            
             local currentHum = currentChar:FindFirstChild("Humanoid")
             if currentHum and currentHum.Sit then
                 currentHum.Sit = false
                 currentHum:ChangeState(Enum.HumanoidStateType.Jumping)
             end
-            for _, weld in pairs(currentChar:GetDescendants()) do
-                if weld:IsA("Weld") and weld.Name == "SeatWeld" then
-                    weld:Destroy()
-                end
-            end
         end
     end)
 
-    -- [V16] RenderStepped (視覺穩定)
+    -- 鎖定真實座標
     renderConnection = RunService.RenderStepped:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -202,20 +210,9 @@ local function StartApotheosis()
         end
     end)
 
-    -- [V17 + V19] Stepped (物理脫離 + 敵人Hitbox無限化)
+    -- 虛擬分身發射 (無敵核心)
     steppedConnection = RunService.Stepped:Connect(function()
         if not isActive then return end
-        
-        -- 擴張所有敵人 Hitbox (放這裡防止伺服器強制重置大小)
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                local enemyHrp = plr.Character.HumanoidRootPart
-                enemyHrp.Size = ENEMY_HITBOX_SIZE
-                enemyHrp.Transparency = 0.7
-                enemyHrp.CanCollide = false
-            end
-        end
-
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if currentHrp then
             realCFrame = currentHrp.CFrame
@@ -232,6 +229,7 @@ local function StartApotheosis()
                 math.rad(math.random(0, 360))
             )
 
+            -- 將 HRP 移至高空並加上高速旋轉，使伺服器無法判定受擊
             currentHrp.CFrame = (realCFrame + SHADOW_OFFSET + jitterOffset) * spinbotAngle
             currentHrp.AssemblyLinearVelocity = Vector3.new(v15, v16, v15)
             currentHrp.AssemblyAngularVelocity = Vector3.new(v15, v16, v15)
@@ -243,7 +241,7 @@ local function RestoreHitboxes()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
             local enemyHrp = plr.Character.HumanoidRootPart
-            enemyHrp.Size = Vector3.new(2, 2, 1) -- 恢復預設 R6/R15 大小
+            enemyHrp.Size = Vector3.new(2, 2, 1) 
             enemyHrp.Transparency = 1
         end
     end
@@ -254,6 +252,7 @@ local function StopApotheosis()
     if steppedConnection then steppedConnection:Disconnect() end
     if heartbeatConnection then heartbeatConnection:Disconnect() end
     if workspaceConnection then workspaceConnection:Disconnect() end
+    if characterConnection then characterConnection:Disconnect() end
     
     RestoreHitboxes()
     
@@ -276,16 +275,16 @@ local isHovering = false
 local function UpdateUI()
     if isActive then
         StatusText.Text = 'STATUS: GOD MODE'
-        StatusText.TextColor3 = Color3.fromRGB(200, 0, 255)
-        MainStroke.Color = Color3.fromRGB(200, 0, 255)
+        StatusText.TextColor3 = Color3.fromRGB(0, 255, 150)
+        MainStroke.Color = Color3.fromRGB(0, 255, 150)
         ToggleBtn.Text = 'DESCEND [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(150, 40, 100) or Color3.fromRGB(120, 30, 80)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(30, 100, 60) or Color3.fromRGB(20, 80, 50)
     else
         StatusText.Text = 'STATUS: MORTAL'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
         MainStroke.Color = Color3.fromRGB(100, 100, 100)
         ToggleBtn.Text = 'ASCEND [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(80, 30, 100) or Color3.fromRGB(60, 20, 80)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(40, 80, 60) or Color3.fromRGB(20, 60, 40)
     end
 end
 
