@@ -1,59 +1,64 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V16.0: PHANTOM ]] --
--- 狀態：終極無敵 (Hitbox Nullification + Vertical Desync)
--- 核心：高空坐標分離 (50000 Studs) + 速度超載 (2e22) + 視覺平滑拉回
+-- [[ VOID x AEGIS V13.0: OBLIVION (ANTI-MANIPULATION) ]] --
+-- 狀態：極端防禦模式
+-- 目標：反制 Projectile Manipulation, Bullet Mimic, Hitbox Teleport
+-- 原理：CFrame 空間剝離、NaN 數據毒化、Hitbox 徹底消除
 
+local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
-local RunService = game:GetService('RunService')
-
+local CoreGui = game:GetService('CoreGui')
 local LocalPlayer = Players.LocalPlayer
+
+-- ==========================================
+-- [ 系統狀態 ]
+-- ==========================================
+local isActive = false
+local connections = {}
 local toggleKey = Enum.KeyCode.P
 
--- ==========================================
--- [ 核心常數 (V16 幽靈防禦機制) ]
--- ==========================================
-local VERTICAL_OFFSET = 50000 -- 將真實 Hitbox 藏在 50000 單位的高空
-local VELOCITY_OVERLOAD = 2e22 -- 保留 V15 破壞預測的機制
-local isActive = false
-
-local realCFrame = nil
-local heartbeatConnection = nil
-local renderConnection = nil
+local function ClearConnections()
+    for _, conn in pairs(connections) do
+        if typeof(conn) == "RBXScriptConnection" then
+            conn:Disconnect()
+        end
+    end
+    table.clear(connections)
+end
 
 -- ==========================================
--- [ 終極警示 UI 建構 (V16 幽靈版) ]
+-- [ 終極警示 UI 建構 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'VoidPhantomGUI'
+ScreenGui.Name = 'VoidOblivionGUI'
 ScreenGui.ResetOnSpawn = false
-pcall(function() ScreenGui.Parent = game:GetService('CoreGui') end)
+pcall(function() ScreenGui.Parent = CoreGui end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 240, 0, 200)
-MainFrame.Position = UDim2.new(0.85, -20, 0.75, -20)
-MainFrame.BackgroundColor3 = Color3.fromRGB(10, 15, 20) -- 幽靈深藍色調
+MainFrame.Size = UDim2.new(0, 250, 0, 200)
+MainFrame.Position = UDim2.new(0.85, -10, 0.75, -10)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 0, 5) -- 深邃的血紅色背景
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new('UICorner', MainFrame)
-MainCorner.CornerRadius = UDim.new(0, 8)
+MainCorner.CornerRadius = UDim.new(0, 6)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(50, 150, 255)
+MainStroke.Color = Color3.fromRGB(255, 30, 30)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '👻 V16 PHANTOM'
-TitleText.TextColor3 = Color3.fromRGB(150, 200, 255)
+TitleText.Text = '☢ V13 OBLIVION'
+TitleText.TextColor3 = Color3.fromRGB(255, 50, 50)
 TitleText.TextSize = 16
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
@@ -62,7 +67,7 @@ local StatusText = Instance.new('TextLabel', MainFrame)
 StatusText.Size = UDim2.new(1, 0, 0, 20)
 StatusText.Position = UDim2.new(0, 0, 0, 35)
 StatusText.BackgroundTransparency = 1
-StatusText.Text = 'HITBOX: VULNERABLE'
+StatusText.Text = 'SYSTEM OFFLINE'
 StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
 StatusText.TextSize = 12
 StatusText.Font = Enum.Font.GothamBold
@@ -71,8 +76,8 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(20, 60, 100)
-ToggleBtn.Text = 'BECOME GHOST [P]'
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+ToggleBtn.Text = 'ENGAGE [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 15
 ToggleBtn.Font = Enum.Font.GothamBold
@@ -80,125 +85,146 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 70)
-StatsText.Position = UDim2.new(0, 0, 0, 115)
+StatsText.Size = UDim2.new(1, 0, 0, 60)
+StatsText.Position = UDim2.new(0, 0, 0, 120)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[-] Hitbox: Y+50000 (Sky)\n[-] Anti-Web: Vertical Only\n[-] Prediction: Overloaded'
-StatsText.TextColor3 = Color3.fromRGB(150, 180, 255)
-StatsText.TextSize = 12
+StatsText.Text = '[!] CFrame Offset: Active\n[!] Math Overload: 9e9 (Toxic)\n[!] Rig Disconnect: True'
+StatsText.TextColor3 = Color3.fromRGB(255, 100, 100)
+StatsText.TextSize = 11
 StatsText.Font = Enum.Font.Code
 StatsText.Parent = MainFrame
 
 -- ==========================================
--- [ 引擎：Hitbox 靈魂出竅 (Phantom Desync) ]
+-- [ 引擎：反操縱核心邏輯 ]
 -- ==========================================
-local function StartDesync()
+local function StartEngine()
+    ClearConnections()
+
     local char = LocalPlayer.Character
     if not char then return end
     
     local hrp = char:FindFirstChild("HumanoidRootPart")
+    local head = char:FindFirstChild("Head")
     local hum = char:FindFirstChild("Humanoid")
+    
     if not hrp or not hum then return end
 
-    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
-    hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+    -- 【1. Hitbox 徹底毀滅 (Rig Destruction)】
+    -- Projectile Manipulation 需要實體來判定擊中。
+    -- 我們不僅縮小頭部，還把所有除了 HRP 以外的身體部位的碰撞與重量歸零，
+    -- 甚至破壞部分外觀關聯，讓伺服器無法正確計算子彈與 Hitbox 的交集。
+    for _, part in pairs(char:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            pcall(function()
+                part.CanCollide = false
+                part.Massless = true
+                -- 將體積壓縮到微觀級別
+                part.Size = Vector3.new(0.01, 0.01, 0.01) 
+                part.Transparency = 0.5 -- 半透明化以利自己觀察
+            end)
+        end
+    end
 
-    -- [核心1: 伺服器端欺騙] (Heartbeat 在物理計算之後，同步給伺服器之前)
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
+    local RealPosition = hrp.CFrame
+    local SpoofOffset = Vector3.new(0, 99999, 0) -- 將伺服器判定點移至 10 萬格高的虛空
+
+    -- 【2. 空間剝離 (Quantum CFrame Offset)】
+    -- 這是對抗 Mimic / Projectile Teleport 最有效的手段。
+    -- 我們在物理運算前 (Heartbeat) 將角色傳送到十萬格高的天空。
+    -- 這樣對方的外掛讀取你的座標時，會讀到天空中的座標，並把子彈傳送到天空。
+    connections.Heartbeat = RunService.Heartbeat:Connect(function()
+        if not isActive then return end
+        local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not currentHrp then return end
+
+        -- 記錄你真實想去的位置
+        RealPosition = currentHrp.CFrame
+        
+        -- 將伺服器上的 HRP 丟到虛空，讓外掛把子彈打向虛空
+        currentHrp.CFrame = RealPosition + SpoofOffset
+
+        -- 【3. 數據毒化 (Math Overload / NaN Venom)】
+        -- 故意將速度設為 Roblox 引擎容許的極大值 (9e9 或無窮大)。
+        -- 高階外掛在計算 Manipulation 軌跡時，通常會用到 Vector3 數學。
+        -- 當他們把這個巨大的數字代入公式時，會引發 Lua 腳本中的 "NaN (Not a Number)" 錯誤，
+        -- 這有極高機率讓對方的外掛直接當機 (Crash) 或射出無效的射線。
+        currentHrp.AssemblyLinearVelocity = Vector3.new(9e9, 9e9, 9e9)
+        currentHrp.AssemblyAngularVelocity = Vector3.new(9e9, 9e9, 9e9)
+    end)
+    
+    -- 【4. 本機視覺還原 (Client Rendering Hook)】
+    -- 如果我們只在 Heartbeat 改變位置，你的畫面會一直卡在天空。
+    -- 必須在畫面渲染前 (RenderStepped)，把你的角色「拉回來」，讓你可以正常遊玩。
+    -- (伺服器依然會認為你在天空，但你的客戶端畫面看起來在地上)
+    connections.RenderStepped = RunService.RenderStepped:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if currentHrp then
-            -- 1. 記錄你在地面上的真實位置
-            realCFrame = currentHrp.CFrame
-            
-            -- 2. 產生微小的隨機偏移 (恢復 V13 的混亂感，但限制在極小範圍，防止產生拉扯網)
-            local chaosX = math.random(-5, 5)
-            local chaosZ = math.random(-5, 5)
-            
-            -- 3. 瘋狂隨機旋轉角度 (Anti-Aim)，防止高空 Hitbox 被爆頭
-            local randomAngle = CFrame.Angles(
-                math.rad(math.random(-360, 360)), 
-                math.rad(math.random(-360, 360)), 
-                math.rad(math.random(-360, 360))
-            )
-
-            -- 4. 瞬間將 Hitbox 送往 50000 單位的高空
-            currentHrp.CFrame = (realCFrame + Vector3.new(chaosX, VERTICAL_OFFSET, chaosZ)) * randomAngle
-            
-            -- 5. 注入極端速度，讓對方的預測自瞄徹底崩潰
-            currentHrp.AssemblyLinearVelocity = Vector3.new(VELOCITY_OVERLOAD, VELOCITY_OVERLOAD, VELOCITY_OVERLOAD)
-            currentHrp.AssemblyAngularVelocity = Vector3.new(VELOCITY_OVERLOAD, VELOCITY_OVERLOAD, VELOCITY_OVERLOAD)
-        end
-    end)
-
-    -- [核心2: 客戶端平滑] (RenderStepped 在畫面渲染之前)
-    renderConnection = RunService.RenderStepped:Connect(function()
-        if not isActive then return end
-        local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if currentHrp and realCFrame then
-            -- 在畫面繪製前，瞬間將你的視角和位置拉回地面。
-            -- 這樣你依然可以正常行走、開槍，但你在伺服器眼裡已經在平流層了。
-            currentHrp.CFrame = realCFrame
+            -- 在畫面上把角色拉回真正的地面位置
+            currentHrp.CFrame = RealPosition
         end
     end)
 end
 
-local function StopDesync()
-    if heartbeatConnection then heartbeatConnection:Disconnect() end
-    if renderConnection then renderConnection:Disconnect() end
-    
+local function StopEngine()
+    ClearConnections()
     local char = LocalPlayer.Character
     if char then
+        -- 嘗試恢復原本的物理狀態 (需重生才能完全恢復外觀)
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp and realCFrame then
-            -- 關閉時安全降落回地面
-            hrp.CFrame = realCFrame
-            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-            hrp.AssemblyAngularVelocity = Vector3.new(0, 0, 0)
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+        end
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+            end
         end
     end
 end
 
 -- ==========================================
--- [ UI 與控制邏輯 ]
+-- [ UI 互動邏輯 ]
 -- ==========================================
 local isHovering = false
+local isDebouncing = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = '👻 HITBOX: UNTOUCHABLE'
-        StatusText.TextColor3 = Color3.fromRGB(50, 255, 150)
-        MainStroke.Color = Color3.fromRGB(50, 255, 150)
-        ToggleBtn.Text = 'REVERT [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 150, 100) or Color3.fromRGB(0, 180, 120)
+        StatusText.Text = '☢ OBLIVION ACTIVE'
+        StatusText.TextColor3 = Color3.fromRGB(255, 50, 50)
+        MainStroke.Color = Color3.fromRGB(255, 10, 10)
+        ToggleBtn.Text = 'DISENGAGE [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(200, 0, 0)
     else
-        StatusText.Text = 'HITBOX: VULNERABLE'
+        StatusText.Text = 'SYSTEM OFFLINE'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
-        MainStroke.Color = Color3.fromRGB(50, 150, 255)
-        ToggleBtn.Text = 'BECOME GHOST [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(30, 80, 130) or Color3.fromRGB(20, 60, 100)
+        MainStroke.Color = Color3.fromRGB(100, 0, 0)
+        ToggleBtn.Text = 'ENGAGE [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(120, 0, 0) or Color3.fromRGB(100, 0, 0)
     end
 end
 
-local function ToggleSystem()
+local function HandleToggle()
+    if isDebouncing then return end
+    isDebouncing = true
     isActive = not isActive
     UpdateUI()
-    if isActive then StartDesync() else StopDesync() end
+    if isActive then StartEngine() else StopEngine() end
+    task.wait(0.3)
+    isDebouncing = false
 end
 
 ToggleBtn.MouseEnter:Connect(function() isHovering = true UpdateUI() end)
 ToggleBtn.MouseLeave:Connect(function() isHovering = false UpdateUI() end)
-ToggleBtn.MouseButton1Click:Connect(ToggleSystem)
+ToggleBtn.MouseButton1Click:Connect(HandleToggle)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == toggleKey then
-        ToggleSystem()
-    end
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent then return end
+    if input.KeyCode == toggleKey then HandleToggle() end
 end)
 
 LocalPlayer.CharacterAdded:Connect(function()
-    if isActive then
-        task.wait(0.5)
-        StartDesync()
-    end
+    task.delay(1, function() if isActive then StartEngine() end end)
 end)
