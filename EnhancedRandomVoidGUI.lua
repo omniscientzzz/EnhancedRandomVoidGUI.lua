@@ -1,8 +1,9 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V20: THE SINGULARITY (奇點) ]] --
--- 完整原版 V20 防禦 + 整合用戶指定的 2048 HitboxHead 絕對路徑擴張
+-- [[ VOID x AEGIS V20: THE SINGULARITY (極端非對稱判定版) ]] --
+-- 敵人 Hitbox 擴張至極限 (2048)
+-- 自身 Hitbox 壓縮至極限 (0.05)
 
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
@@ -14,9 +15,11 @@ local toggleKey = Enum.KeyCode.P
 -- ==========================================
 -- [ 核心奇點參數 ]
 -- ==========================================
-local OVERFLOW_VAL = 2e22 -- 溢出數值，用於崩潰敵方 Aimbot 預判
-local QUANTUM_RADIUS = 500000 -- 半徑 50 萬格的量子閃現
-local FORCEFIELD_RADIUS = 100 -- 黑洞力場半徑擴大
+local OVERFLOW_VAL = 2e22
+local QUANTUM_RADIUS = 500000
+local FORCEFIELD_RADIUS = 100
+local MAX_HITBOX = Vector3.new(2048, 2048, 2048) -- 敵人極大化
+local MIN_HITBOX = Vector3.new(0.05, 0.05, 0.05) -- 自身極小化 (Roblox 引擎極限)
 
 local isActive = false
 local realCFrame = nil
@@ -31,35 +34,50 @@ local workspaceConnection = nil
 local characterConnection = nil
 
 -- ==========================================
--- [ 異步 Hitbox 處理 (整合 2048 HitboxHead) ]
+-- [ 異步 Hitbox 處理 (極端放大與極端縮小) ]
 -- ==========================================
 task.spawn(function()
     while true do
         task.wait(0.5)
         if isActive then
+            -- [1] 放大敵人 (最大化)
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
-                    
-                    -- 【用戶指定的絕對路徑 2048 Hitbox 擴張】
+                    -- 用戶指定的絕對路徑擴張
                     pcall(function()
                         if workspace:FindFirstChild(plr.Name) and workspace[plr.Name]:FindFirstChild("HitboxHead") then
-                            workspace[plr.Name].HitboxHead.Size = Vector3.new(2048, 2048, 2048)
+                            workspace[plr.Name].HitboxHead.Size = MAX_HITBOX
                             workspace[plr.Name].HitboxHead.Transparency = 0.85
                             workspace[plr.Name].HitboxHead.CanCollide = false
                             workspace[plr.Name].HitboxHead.Massless = true
                         end
                     end)
 
-                    -- 【備用防護：如果遊戲沒有 HitboxHead，我們連同 HumanoidRootPart 一起放大】
+                    -- 備用：連同 HumanoidRootPart 一起放大
                     pcall(function()
                         local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
                         if hrp and hrp.Size.X < 2000 then
-                            hrp.Size = Vector3.new(2048, 2048, 2048)
+                            hrp.Size = MAX_HITBOX
                             hrp.Transparency = 0.85
                             hrp.CanCollide = false
                         end
                     end)
-                    
+                end
+            end
+
+            -- [2] 縮小自己 (最小化)
+            local myChar = LocalPlayer.Character
+            if myChar then
+                -- 將自己的核心受擊部位全部縮小成一個點
+                local shrinkTargets = {"HitboxHead", "Head", "HumanoidRootPart", "Torso", "UpperTorso"}
+                for _, partName in ipairs(shrinkTargets) do
+                    local part = myChar:FindFirstChild(partName)
+                    if part then
+                        pcall(function()
+                            part.Size = MIN_HITBOX
+                            part.Transparency = 1 -- 讓自己完全隱形，敵人連殘影都看不到
+                        end)
+                    end
                 end
             end
         end
@@ -77,8 +95,8 @@ if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("Player
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 310, 0, 290) -- 稍微加高以容納新文字
-MainFrame.Position = UDim2.new(0.85, -50, 0.75, -90)
+MainFrame.Size = UDim2.new(0, 310, 0, 310) 
+MainFrame.Position = UDim2.new(0.85, -50, 0.75, -110)
 MainFrame.BackgroundColor3 = Color3.fromRGB(5, 0, 15) 
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -123,10 +141,10 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 160)
+StatsText.Size = UDim2.new(1, 0, 0, 180)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] Quantum Jitter (500k Studs)\n[✓] Aimbot Crash Inject (2e22)\n[✓] Blackhole Shield (100 Studs)\n[✓] True Ghosting & Noclip\n[✓] UE & ESP Bypass Denial\n[✓] 2048x HitboxHead Expander'
+StatsText.Text = '[✓] Enemy Hitbox Maximize (2048)\n[✓] Self Hitbox Minimize (0.05)\n[✓] Quantum Jitter (500k Studs)\n[✓] Aimbot Crash Inject (2e22)\n[✓] Blackhole Shield (100 Studs)\n[✓] True Ghosting & Noclip\n[✓] UE & ESP Bypass Denial'
 StatsText.TextColor3 = Color3.fromRGB(220, 180, 255)
 StatsText.TextSize = 12
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
@@ -151,14 +169,12 @@ local function StartApotheosis()
     realCFrame = hrp.CFrame
     overlapParams.FilterDescendantsInstances = {char}
 
-    -- 阻斷所有黏著事件
     characterConnection = char.ChildAdded:Connect(function(child)
         if isActive and child:IsA("Weld") and child.Name == "SeatWeld" then
             task.delay(0, function() pcall(function() child:Destroy() end) end)
         end
     end)
 
-    -- 防爆炸
     workspaceConnection = workspace.DescendantAdded:Connect(function(desc)
         if not isActive then return end
         if desc:IsA("Explosion") then
@@ -168,20 +184,15 @@ local function StartApotheosis()
         end
     end)
 
-    -- [核心 1] Heartbeat：幽靈化與黑洞力場
     heartbeatConnection = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         local currentChar = LocalPlayer.Character
         if not currentChar then return end
 
-        -- 全身徹底幽靈化
         for _, part in ipairs(currentChar:GetDescendants()) do
             if part:IsA("BasePart") then
                 part.CanCollide = false
-                pcall(function()
-                    part.CanTouch = false
-                    part.CanQuery = false 
-                end)
+                pcall(function() part.CanTouch = false part.CanQuery = false end)
             end
         end
         
@@ -191,16 +202,12 @@ local function StartApotheosis()
             currentHum:ChangeState(Enum.HumanoidStateType.Jumping)
         end
 
-        -- 黑洞力場 (撕裂周圍敵對物件)
         if realCFrame then
             local threats = workspace:GetPartBoundsInRadius(realCFrame.Position, FORCEFIELD_RADIUS, overlapParams)
             for _, threat in ipairs(threats) do
                 if threat:IsA("BasePart") and threat.Size.Magnitude < 100 then
-                    pcall(function() threat.CanTouch = false end)
-                    pcall(function() threat.CanQuery = false end)
-                    
+                    pcall(function() threat.CanTouch = false threat.CanQuery = false end)
                     if not threat.Anchored then
-                        -- 注入溢出速度，讓物理引擎直接把敵人子彈丟進虛空
                         threat.AssemblyLinearVelocity = Vector3.new(OVERFLOW_VAL, OVERFLOW_VAL, OVERFLOW_VAL)
                         threat.AssemblyAngularVelocity = Vector3.new(OVERFLOW_VAL, OVERFLOW_VAL, OVERFLOW_VAL)
                     end
@@ -209,7 +216,6 @@ local function StartApotheosis()
         end
     end)
 
-    -- [核心 2] RenderStepped：穩定本體畫面
     renderConnection = RunService.RenderStepped:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -220,29 +226,22 @@ local function StartApotheosis()
         end
     end)
 
-    -- [核心 3] Stepped：量子閃現與 Aimbot 崩潰注入
     steppedConnection = RunService.Stepped:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if currentHrp then
             realCFrame = currentHrp.CFrame
-            
-            -- 量子閃現：不再只是待在固定高空，而是每 0.01 秒在 50 萬格內隨機傳送
             local quantumOffset = Vector3.new(
                 math.random(-QUANTUM_RADIUS, QUANTUM_RADIUS),
                 math.random(100000, QUANTUM_RADIUS),
                 math.random(-QUANTUM_RADIUS, QUANTUM_RADIUS)
             )
-            
             local spinbotAngle = CFrame.Angles(
                 math.rad(math.random(0, 360)), 
                 math.rad(math.random(0, 360)), 
                 math.rad(math.random(0, 360))
             )
-
             currentHrp.CFrame = (realCFrame + quantumOffset) * spinbotAngle
-            
-            -- 注入 2e22 的溢出速度，這將導致敵方高級 Aimbot 在預判計算時發生數值崩潰
             currentHrp.AssemblyLinearVelocity = Vector3.new(OVERFLOW_VAL, OVERFLOW_VAL, OVERFLOW_VAL)
             currentHrp.AssemblyAngularVelocity = Vector3.new(OVERFLOW_VAL, OVERFLOW_VAL, OVERFLOW_VAL)
         end
@@ -250,6 +249,7 @@ local function StartApotheosis()
 end
 
 local function RestoreHitboxes()
+    -- 恢復敵人
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             pcall(function()
@@ -266,6 +266,13 @@ local function RestoreHitboxes()
             end)
         end
     end
+    -- 恢復自己
+    local myChar = LocalPlayer.Character
+    if myChar then
+        pcall(function() myChar.Head.Size = Vector3.new(2, 1, 1) myChar.Head.Transparency = 0 end)
+        pcall(function() myChar.HumanoidRootPart.Size = Vector3.new(2, 2, 1) myChar.HumanoidRootPart.Transparency = 1 end)
+        pcall(function() if myChar:FindFirstChild("HitboxHead") then myChar.HitboxHead.Size = Vector3.new(2, 1, 1) myChar.HitboxHead.Transparency = 0 end end)
+    end
 end
 
 local function StopApotheosis()
@@ -281,13 +288,9 @@ local function StopApotheosis()
     if char then
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
-                pcall(function()
-                    part.CanTouch = true
-                    part.CanQuery = true
-                end)
+                pcall(function() part.CanTouch = true part.CanQuery = true end)
             end
         end
-
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp and realCFrame then
             hrp.CFrame = realCFrame
@@ -301,7 +304,6 @@ end
 -- [ UI 與控制邏輯 ]
 -- ==========================================
 local isHovering = false
-
 local function UpdateUI()
     if isActive then
         StatusText.Text = 'STATUS: SINGULARITY'
@@ -318,26 +320,17 @@ local function UpdateUI()
     end
 end
 
-local function ToggleSystem()
-    isActive = not isActive
-    UpdateUI()
-    if isActive then StartApotheosis() else StopApotheosis() end
-end
-
 ToggleBtn.MouseEnter:Connect(function() isHovering = true UpdateUI() end)
 ToggleBtn.MouseLeave:Connect(function() isHovering = false UpdateUI() end)
-ToggleBtn.MouseButton1Click:Connect(ToggleSystem)
+ToggleBtn.MouseButton1Click:Connect(function() isActive = not isActive UpdateUI() if isActive then StartApotheosis() else StopApotheosis() end end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and input.KeyCode == toggleKey then
-        ToggleSystem()
+        isActive = not isActive UpdateUI() if isActive then StartApotheosis() else StopApotheosis() end
     end
 end)
 
 LocalPlayer.CharacterAdded:Connect(function(newChar)
-    if isActive then
-        task.wait(0.5)
-        overlapParams.FilterDescendantsInstances = {newChar}
-        StartApotheosis()
-    end
+    if isActive then task.wait(0.5) overlapParams.FilterDescendantsInstances = {newChar} StartApotheosis() end
 end)
+
