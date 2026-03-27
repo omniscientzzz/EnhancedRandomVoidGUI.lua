@@ -1,9 +1,10 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V12.0: RAGE-BREAKER (ANTI-RAGEBOT) ]] --
--- 功能：伺服器座標脫軌 (Desync)、反預測超載、核心部件隱匿
--- 狀態：專殺 360 FOV / Silent Aim / Prediction Rage Bots
+-- [[ VOID x AEGIS V13.0: OBLIVION (ANTI-MANIPULATION) ]] --
+-- 狀態：極端防禦模式
+-- 目標：反制 Projectile Manipulation, Bullet Mimic, Hitbox Teleport
+-- 原理：CFrame 空間剝離、NaN 數據毒化、Hitbox 徹底消除
 
 local RunService = game:GetService('RunService')
 local Players = game:GetService('Players')
@@ -12,7 +13,7 @@ local CoreGui = game:GetService('CoreGui')
 local LocalPlayer = Players.LocalPlayer
 
 -- ==========================================
--- [ 核心狀態管理 ]
+-- [ 系統狀態 ]
 -- ==========================================
 local isActive = false
 local connections = {}
@@ -28,45 +29,45 @@ local function ClearConnections()
 end
 
 -- ==========================================
--- [ UI 介面建構 ]
+-- [ 終極警示 UI 建構 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'VoidRageBreakerGUI'
+ScreenGui.Name = 'VoidOblivionGUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = CoreGui end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 240, 0, 190)
-MainFrame.Position = UDim2.new(0.85, 0, 0.75, 0)
-MainFrame.BackgroundColor3 = Color3.fromRGB(8, 3, 10)
+MainFrame.Size = UDim2.new(0, 250, 0, 200)
+MainFrame.Position = UDim2.new(0.85, -10, 0.75, -10)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 0, 5) -- 深邃的血紅色背景
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
 MainFrame.Parent = ScreenGui
 
 local MainCorner = Instance.new('UICorner', MainFrame)
-MainCorner.CornerRadius = UDim.new(0, 8)
+MainCorner.CornerRadius = UDim.new(0, 6)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(150, 50, 255)
+MainStroke.Color = Color3.fromRGB(255, 30, 30)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '☠ V12 RAGE-BREAKER'
-TitleText.TextColor3 = Color3.fromRGB(200, 100, 255)
-TitleText.TextSize = 15
-TitleText.Font = Enum.Font.GothamBold
+TitleText.Text = '☢ V13 OBLIVION'
+TitleText.TextColor3 = Color3.fromRGB(255, 50, 50)
+TitleText.TextSize = 16
+TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
 
 local StatusText = Instance.new('TextLabel', MainFrame)
 StatusText.Size = UDim2.new(1, 0, 0, 20)
 StatusText.Position = UDim2.new(0, 0, 0, 35)
 StatusText.BackgroundTransparency = 1
-StatusText.Text = '● STANDBY (Press P)'
+StatusText.Text = 'SYSTEM OFFLINE'
 StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
 StatusText.TextSize = 12
 StatusText.Font = Enum.Font.GothamBold
@@ -74,9 +75,9 @@ StatusText.Parent = MainFrame
 
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
-ToggleBtn.Position = UDim2.new(0.1, 0, 0, 60)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 0, 120)
-ToggleBtn.Text = 'ACTIVATE [P]'
+ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(100, 0, 0)
+ToggleBtn.Text = 'ENGAGE [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 15
 ToggleBtn.Font = Enum.Font.GothamBold
@@ -84,17 +85,17 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 50)
-StatsText.Position = UDim2.new(0, 0, 0, 110)
+StatsText.Size = UDim2.new(1, 0, 0, 60)
+StatsText.Position = UDim2.new(0, 0, 0, 120)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = 'SYS: Network Desync\nSYS: Velocity Spoofing\nSYS: Target Nullification'
-StatsText.TextColor3 = Color3.fromRGB(180, 130, 255)
+StatsText.Text = '[!] CFrame Offset: Active\n[!] Math Overload: 9e9 (Toxic)\n[!] Rig Disconnect: True'
+StatsText.TextColor3 = Color3.fromRGB(255, 100, 100)
 StatsText.TextSize = 11
-StatsText.Font = Enum.Font.Gotham
+StatsText.Font = Enum.Font.Code
 StatsText.Parent = MainFrame
 
 -- ==========================================
--- [ 引擎：反 Rage Bot 機制 ]
+-- [ 引擎：反操縱核心邏輯 ]
 -- ==========================================
 local function StartEngine()
     ClearConnections()
@@ -108,65 +109,60 @@ local function StartEngine()
     
     if not hrp or not hum then return end
 
-    -- 【1. 目標丟失 (Target Nullification)】
-    -- Rage Bot 99% 的邏輯是尋找 "Character.Head" 或 "Character.HumanoidRootPart"。
-    -- 我們利用 Roblox 的漏洞，將 Head 的大小設為 0，並移除其物理判定，
-    -- 讓依賴 Raycast (射線檢測) 和 Hitbox 掃描的 Rage Bot 發生 Lua 錯誤 (Index Nil) 或射空。
-    if head then
-        pcall(function()
-            head.Size = Vector3.new(0.05, 0.05, 0.05)
-            head.Transparency = 1
-            head.CanCollide = false
-            head.Massless = true
-        end)
+    -- 【1. Hitbox 徹底毀滅 (Rig Destruction)】
+    -- Projectile Manipulation 需要實體來判定擊中。
+    -- 我們不僅縮小頭部，還把所有除了 HRP 以外的身體部位的碰撞與重量歸零，
+    -- 甚至破壞部分外觀關聯，讓伺服器無法正確計算子彈與 Hitbox 的交集。
+    for _, part in pairs(char:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            pcall(function()
+                part.CanCollide = false
+                part.Massless = true
+                -- 將體積壓縮到微觀級別
+                part.Size = Vector3.new(0.01, 0.01, 0.01) 
+                part.Transparency = 0.5 -- 半透明化以利自己觀察
+            end)
+        end
     end
 
-    -- 【2. 伺服器座標脫軌 (Network Desync) & 反預測 (Anti-Prediction)】
-    -- 我們將干擾你的 AssemblyLinearVelocity。
-    -- 在你的畫面上你正常走路，但在伺服器與外掛眼中，你的速度是無限大且瘋狂亂飛的。
-    -- 由於 Rage Bot 會計算預測點 (Prediction = Target.Velocity * BulletTravelTime)，
-    -- 當你的 Velocity 異常時，他們的子彈會射向幾萬格之外的太空。
-    
-    local isDesyncing = false
-    local originalVelocity = Vector3.new(0,0,0)
+    local RealPosition = hrp.CFrame
+    local SpoofOffset = Vector3.new(0, 99999, 0) -- 將伺服器判定點移至 10 萬格高的虛空
 
+    -- 【2. 空間剝離 (Quantum CFrame Offset)】
+    -- 這是對抗 Mimic / Projectile Teleport 最有效的手段。
+    -- 我們在物理運算前 (Heartbeat) 將角色傳送到十萬格高的天空。
+    -- 這樣對方的外掛讀取你的座標時，會讀到天空中的座標，並把子彈傳送到天空。
     connections.Heartbeat = RunService.Heartbeat:Connect(function()
         if not isActive then return end
-        
-        local currentChar = LocalPlayer.Character
-        local currentHrp = currentChar and currentChar:FindFirstChild("HumanoidRootPart")
+        local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not currentHrp then return end
 
-        -- 獲取真實的移動意圖
-        if hum.MoveDirection.Magnitude > 0 then
-            -- 當你在移動時，注入極端的隨機速度來摧毀外掛的預測函數
-            currentHrp.AssemblyLinearVelocity = Vector3.new(
-                math.random(-99999, 99999),
-                math.random(-99999, 99999),
-                math.random(-99999, 99999)
-            )
-            
-            -- 微幅的 CFrame 抖動 (Jitter Anti-Aim)
-            -- 這讓強制鎖頭的 Silent Aim 會因為命中判定框偏移而打中空氣或身體
-            local jitter = CFrame.Angles(
-                math.rad(math.random(-180, 180)), 
-                math.rad(math.random(-180, 180)), 
-                math.rad(math.random(-180, 180))
-            )
-            currentHrp.CFrame = currentHrp.CFrame * jitter
-        else
-            -- 站立不動時，讓自己「沉入地底」，但在客戶端依然顯示在地上
-            -- (這被稱為 Fake Duck / Offset Desync)
-            currentHrp.AssemblyLinearVelocity = Vector3.new(0, -100000, 0)
-        end
+        -- 記錄你真實想去的位置
+        RealPosition = currentHrp.CFrame
+        
+        -- 將伺服器上的 HRP 丟到虛空，讓外掛把子彈打向虛空
+        currentHrp.CFrame = RealPosition + SpoofOffset
+
+        -- 【3. 數據毒化 (Math Overload / NaN Venom)】
+        -- 故意將速度設為 Roblox 引擎容許的極大值 (9e9 或無窮大)。
+        -- 高階外掛在計算 Manipulation 軌跡時，通常會用到 Vector3 數學。
+        -- 當他們把這個巨大的數字代入公式時，會引發 Lua 腳本中的 "NaN (Not a Number)" 錯誤，
+        -- 這有極高機率讓對方的外掛直接當機 (Crash) 或射出無效的射線。
+        currentHrp.AssemblyLinearVelocity = Vector3.new(9e9, 9e9, 9e9)
+        currentHrp.AssemblyAngularVelocity = Vector3.new(9e9, 9e9, 9e9)
     end)
     
-    -- 【3. 畫面穩定器 (Render Stabilizer)】
-    -- 因為我們在 Heartbeat 弄亂了座標與速度，為了不讓你的畫面發瘋，
-    -- 我們必須在 RenderStepped (畫面渲染前) 把你的攝影機與顯示修復回來。
+    -- 【4. 本機視覺還原 (Client Rendering Hook)】
+    -- 如果我們只在 Heartbeat 改變位置，你的畫面會一直卡在天空。
+    -- 必須在畫面渲染前 (RenderStepped)，把你的角色「拉回來」，讓你可以正常遊玩。
+    -- (伺服器依然會認為你在天空，但你的客戶端畫面看起來在地上)
     connections.RenderStepped = RunService.RenderStepped:Connect(function()
-        -- 確保你的視角不受瘋狂旋轉和位移的影響 (隱藏式的自瞄對抗)
-        -- (由於 Roblox 物理引擎的計算順序，這足以欺騙伺服器而保護客戶端體驗)
+        if not isActive then return end
+        local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if currentHrp then
+            -- 在畫面上把角色拉回真正的地面位置
+            currentHrp.CFrame = RealPosition
+        end
     end)
 end
 
@@ -174,12 +170,16 @@ local function StopEngine()
     ClearConnections()
     local char = LocalPlayer.Character
     if char then
-        local head = char:FindFirstChild("Head")
-        if head then
-            pcall(function()
-                head.Size = Vector3.new(1.2, 1, 1) -- 恢復預設頭部大小
-                head.Transparency = 0
-            end)
+        -- 嘗試恢復原本的物理狀態 (需重生才能完全恢復外觀)
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+        end
+        for _, part in pairs(char:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+            end
         end
     end
 end
@@ -192,17 +192,17 @@ local isDebouncing = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = '● DESYNC ACTIVE'
-        StatusText.TextColor3 = Color3.fromRGB(200, 100, 255)
-        MainStroke.Color = Color3.fromRGB(200, 50, 255)
-        ToggleBtn.Text = 'DEACTIVATE [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(120, 0, 180) or Color3.fromRGB(100, 0, 150)
+        StatusText.Text = '☢ OBLIVION ACTIVE'
+        StatusText.TextColor3 = Color3.fromRGB(255, 50, 50)
+        MainStroke.Color = Color3.fromRGB(255, 10, 10)
+        ToggleBtn.Text = 'DISENGAGE [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(200, 0, 0)
     else
-        StatusText.Text = '● STANDBY (Press P)'
+        StatusText.Text = 'SYSTEM OFFLINE'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
-        MainStroke.Color = Color3.fromRGB(150, 50, 255)
-        ToggleBtn.Text = 'ACTIVATE [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(100, 0, 150) or Color3.fromRGB(70, 0, 120)
+        MainStroke.Color = Color3.fromRGB(100, 0, 0)
+        ToggleBtn.Text = 'ENGAGE [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(120, 0, 0) or Color3.fromRGB(100, 0, 0)
     end
 end
 
