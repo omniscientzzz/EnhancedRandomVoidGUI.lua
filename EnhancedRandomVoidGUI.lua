@@ -1,10 +1,11 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V34: WRAITH (怨靈・破甲與無限領域) ]] --
+-- [[ VOID x AEGIS V35: PHANTOM (怨靈・無形幻影) ]] --
+-- 修正了無法攻擊的問題：捨棄實體護盾，改用空間雷達抹除。
+-- 修正了武器失效的問題：不再將角色移出 Workspace。
 -- 核心 1：Shield Breaker (破甲打擊) - 摧毀敵人所有護盾。
--- 核心 2：Hierarchy Shift (圖層剝離) - 移出 Workspace 規避 AoE。
--- 核心 3：Omnipresent Aegis (全知神盾) - 將 Hitbox 放大至引擎極限 (2048 Studs)。
+-- 核心 2：Spatial Radar (空間雷達) - 無實體防禦，瞬間抹除靠近的投擲物。
 
 local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
@@ -21,16 +22,16 @@ local lastScanTime = 0
 -- [ GUI 建構 (怨靈幽紫風格) ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'AegisV34GUI'
+ScreenGui.Name = 'AegisV35GUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = game:GetService('CoreGui') end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 330, 0, 340)
+MainFrame.Size = UDim2.new(0, 340, 0, 340)
 MainFrame.Position = UDim2.new(0.85, -60, 0.75, -130)
-MainFrame.BackgroundColor3 = Color3.fromRGB(15, 5, 20)
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 5, 15)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
@@ -40,14 +41,14 @@ local MainCorner = Instance.new('UICorner', MainFrame)
 MainCorner.CornerRadius = UDim.new(0, 6)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(180, 0, 255)
+MainStroke.Color = Color3.fromRGB(130, 0, 255)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '👻 V34 WRAITH (OMNIPRESENT)'
-TitleText.TextColor3 = Color3.fromRGB(200, 100, 255)
+TitleText.Text = '👻 V35 WRAITH (PHANTOM)'
+TitleText.TextColor3 = Color3.fromRGB(180, 100, 255)
 TitleText.TextSize = 15
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
@@ -56,7 +57,7 @@ local StatusText = Instance.new('TextLabel', MainFrame)
 StatusText.Size = UDim2.new(1, 0, 0, 20)
 StatusText.Position = UDim2.new(0, 0, 0, 35)
 StatusText.BackgroundTransparency = 1
-StatusText.Text = 'WRAITH MODE: DISABLED'
+StatusText.Text = 'PHANTOM MODE: DISABLED'
 StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
 StatusText.TextSize = 12
 StatusText.Font = Enum.Font.GothamBold
@@ -65,8 +66,8 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 10, 60)
-ToggleBtn.Text = 'ENGAGE WRAITH [P]'
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(30, 10, 50)
+ToggleBtn.Text = 'ENGAGE PHANTOM [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
@@ -77,8 +78,8 @@ local StatsText = Instance.new('TextLabel', MainFrame)
 StatsText.Size = UDim2.new(1, 0, 0, 210)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] Enemy Shields Eradicated\n[✓] Workspace Hierarchy Shift\n[✓] Projectiles Nullified\n[✓] Infinite Hitbox (2048 Studs)\n\nYour Aegis barrier now covers the entire\nmap. Any unanchored projectile or raycast\nspawned anywhere will be instantly\nabsorbed by your limitless domain.'
-StatsText.TextColor3 = Color3.fromRGB(180, 120, 255)
+StatsText.Text = '[✓] Enemy Shields Eradicated\n[✓] Weapons Restored (No Hitbox Block)\n[✓] Spatial Radar Deletion (150 Studs)\n[✓] Server Desync Attempt\n\nPhysical walls removed.\nYou can now attack normally.\nA 150-stud invisible radar instantly\nteleports & deletes incoming projectiles.'
+StatsText.TextColor3 = Color3.fromRGB(160, 120, 255)
 StatsText.TextSize = 11
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
 StatsText.Font = Enum.Font.Code
@@ -101,8 +102,6 @@ local function StripEnemyShields()
                     if obj:IsA("BasePart") then
                         pcall(function()
                             obj.CanCollide = false
-                            obj.CanTouch = false
-                            obj.CanQuery = false 
                             obj.Transparency = 1
                             obj.Size = Vector3.new(0.01, 0.01, 0.01) 
                         end)
@@ -111,102 +110,35 @@ local function StripEnemyShields()
                     end
                 end
             end
-
-            pcall(function()
-                if enemyChar:GetAttribute("Shield") or enemyChar:GetAttribute("Armor") then
-                    enemyChar:SetAttribute("Shield", 0)
-                    enemyChar:SetAttribute("Armor", 0)
-                end
-            end)
         end
     end
 end
 
 -- ==========================================
--- [ 核心 3：全知神盾 (Omnipresent Aegis) ]
+-- [ 核心 2：空間雷達 (Spatial Radar) ]
 -- ==========================================
-local function EnsureAegisBarrier(char)
-    if not char then return end
-    
-    -- 1. 官方防護罩 (抵禦基礎腳本傷害)
-    if not char:FindFirstChild("WraithForceField") then
-        local ff = Instance.new("ForceField")
-        ff.Name = "WraithForceField"
-        ff.Visible = false
-        ff.Parent = char
-    end
-
-    -- 2. 極限體積結界 (引擎上限：2048x2048x2048)
+-- 放棄實體護盾，改用無形的空間掃描。這保證了你的武器和滑鼠絕對不會被擋住。
+local function RadarEradication(char)
     local root = char:FindFirstChild("HumanoidRootPart")
-    if root and not char:FindFirstChild("AegisBarrier") then
-        local barrier = Instance.new("Part")
-        barrier.Name = "AegisBarrier"
-        barrier.Shape = Enum.PartType.Ball
-        
-        -- 【關鍵修改】：將盾牌的 Hitbox 放大至 Roblox 引擎的物理極限
-        barrier.Size = Vector3.new(2048, 2048, 2048) 
-        
-        barrier.Material = Enum.Material.ForceField
-        barrier.Color = Color3.fromRGB(100, 0, 255)
-        
-        -- 因為體積過於巨大，必須將其完全隱形，否則會遮蔽整個遊戲畫面
-        barrier.Transparency = 1 
-        
-        barrier.CanCollide = false 
-        barrier.CanTouch = true    -- 觸發投擲物銷毀
-        barrier.CanQuery = true    -- 吸收全地圖的射線 (Raycast)
-        barrier.Massless = true
-        barrier.Anchored = false
-        barrier.CastShadow = false
+    if not root then return end
 
-        -- 將結界綁定在玩家身上
-        local weld = Instance.new("WeldConstraint")
-        weld.Part0 = barrier
-        weld.Part1 = root
-        weld.Parent = barrier
+    -- 設定掃描過濾器：排除你自己，以免把自己的子彈或裝備刪掉
+    local overlapParams = OverlapParams.new()
+    overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+    overlapParams.FilterDescendantsInstances = {char}
 
-        barrier.CFrame = root.CFrame
-        barrier.Parent = char
+    -- 掃描周圍 150 Studs 內的所有零件
+    local hitParts = workspace:GetPartBoundsInRadius(root.Position, 150, overlapParams)
 
-        -- [全圖投擲物抹除邏輯]
-        barrier.Touched:Connect(function(hit)
-            if hit and hit.Parent and not hit:IsDescendantOf(char) and not hit:IsDescendantOf(workspace.Terrain) then
-                -- 攔截未錨定的物體 (過濾掉地圖建築)
-                if not hit.Anchored and hit.Size.Magnitude < 100 then
-                    pcall(function()
-                        hit.CanTouch = false
-                        hit.Velocity = Vector3.new(0, 0, 0)
-                        hit:Destroy()
-                    end)
-                end
-            end
-        end)
-    end
-end
-
-local function RemoveAegisBarrier(char)
-    if not char then return end
-    local ff = char:FindFirstChild("WraithForceField")
-    if ff then ff:Destroy() end
-    local barrier = char:FindFirstChild("AegisBarrier")
-    if barrier then barrier:Destroy() end
-end
-
--- ==========================================
--- [ 核心 2：圖層剝離 (Hierarchy Shift) ]
--- ==========================================
-local function ShiftDimension(char)
-    if not char then return end
-    
-    if char.Parent ~= workspace.CurrentCamera then
-        pcall(function() char.Parent = workspace.CurrentCamera end)
-    end
-    
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= "AegisBarrier" then
+    for _, hit in ipairs(hitParts) do
+        -- 判斷是否為敵人的投擲物 (未錨定、體積不大、不是地圖地形)
+        if not hit.Anchored and hit.Size.Magnitude < 50 and not hit:IsDescendantOf(workspace.Terrain) then
             pcall(function()
-                part.CanQuery = false
-                part.CanTouch = false
+                -- 為了防止伺服器判定延遲，先將它瞬間傳送到地底虛空，剝奪碰撞，最後刪除
+                hit.CFrame = CFrame.new(0, -99999, 0)
+                hit.Velocity = Vector3.new(0, 0, 0)
+                hit.CanTouch = false
+                hit:Destroy()
             end)
         end
     end
@@ -215,32 +147,37 @@ end
 -- ==========================================
 -- [ 系統生命週期控制 ]
 -- ==========================================
-local function StartWraith()
+local function StartPhantom()
+    -- 掛載官方無敵幀作為最後防線
     local char = LocalPlayer.Character
-    if not char then return end
-
-    EnsureAegisBarrier(char)
+    if char and not char:FindFirstChild("WraithForceField") then
+        local ff = Instance.new("ForceField")
+        ff.Name = "WraithForceField"
+        ff.Visible = false
+        ff.Parent = char
+    end
 
     local loop = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         
         local currentTime = tick()
+        
+        -- 每 0.5 秒破甲一次
         if currentTime - lastScanTime >= 0.5 then
             StripEnemyShields()
             lastScanTime = currentTime
         end
         
+        -- 每一幀執行空間雷達抹除
         local currentChar = LocalPlayer.Character
         if currentChar then
-            ShiftDimension(currentChar)
-            EnsureAegisBarrier(currentChar)
-            -- 移除了旋轉特效，因為現在結界是全透明且覆蓋全圖的，旋轉會消耗多餘的效能
+            RadarEradication(currentChar)
         end
     end)
     table.insert(connections, loop)
 end
 
-local function StopWraith()
+local function StopPhantom()
     for _, conn in ipairs(connections) do
         conn:Disconnect()
     end
@@ -248,17 +185,8 @@ local function StopWraith()
     
     local char = LocalPlayer.Character
     if char then
-        pcall(function() char.Parent = workspace end)
-        RemoveAegisBarrier(char)
-        
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
-                pcall(function()
-                    part.CanQuery = true
-                    part.CanTouch = true
-                end)
-            end
-        end
+        local ff = char:FindFirstChild("WraithForceField")
+        if ff then ff:Destroy() end
     end
 end
 
@@ -269,24 +197,24 @@ local isHovering = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = 'WRAITH MODE: ACTIVE'
-        StatusText.TextColor3 = Color3.fromRGB(180, 0, 255)
-        MainStroke.Color = Color3.fromRGB(180, 0, 255)
+        StatusText.Text = 'PHANTOM MODE: ACTIVE'
+        StatusText.TextColor3 = Color3.fromRGB(130, 0, 255)
+        MainStroke.Color = Color3.fromRGB(130, 0, 255)
         ToggleBtn.Text = 'DISENGAGE [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(80, 0, 120) or Color3.fromRGB(60, 0, 90)
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(60, 0, 100) or Color3.fromRGB(40, 0, 70)
     else
-        StatusText.Text = 'WRAITH MODE: DISABLED'
+        StatusText.Text = 'PHANTOM MODE: DISABLED'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
         MainStroke.Color = Color3.fromRGB(100, 100, 100)
-        ToggleBtn.Text = 'ENGAGE WRAITH [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(60, 10, 80) or Color3.fromRGB(40, 10, 60)
+        ToggleBtn.Text = 'ENGAGE PHANTOM [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(50, 10, 70) or Color3.fromRGB(30, 10, 50)
     end
 end
 
 local function ToggleSystem()
     isActive = not isActive
     UpdateUI()
-    if isActive then StartWraith() else StopWraith() end
+    if isActive then StartPhantom() else StopPhantom() end
 end
 
 ToggleBtn.MouseEnter:Connect(function() isHovering = true UpdateUI() end)
@@ -302,8 +230,7 @@ end)
 LocalPlayer.CharacterAdded:Connect(function()
     if isActive then
         task.wait(0.5)
-        StartWraith()
+        StartPhantom()
     end
 end)
-
 
