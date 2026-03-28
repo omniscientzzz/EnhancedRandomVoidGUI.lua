@@ -1,8 +1,9 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V21: AEGIS OVERRIDE (神盾覆寫) ]] --
--- 終極反外掛投擲物：動能欺騙、觸碰抹除、本地端投擲物強制湮滅
+-- [[ VOID x AEGIS V24: TERMINUS (終焉極限) ]] --
+-- 座標突破 1e30 (Roblox Float32 極限邊緣)
+-- 徹底摧毀全圖範圍爆破與 math.huge 鎖定
 
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
@@ -12,14 +13,17 @@ local LocalPlayer = Players.LocalPlayer
 local toggleKey = Enum.KeyCode.P
 
 -- ==========================================
--- [ 核心奇點參數 ]
+-- [ 核心極限參數 (Float32 極限邊緣) ]
 -- ==========================================
-local DESYNC_HEIGHT = 500000 -- 伺服器端假身高度
-local VOID_DEPTH = 500000 -- 放逐深度 (改為正數高空，避免觸發跌落死亡機制)
-local FORCEFIELD_RADIUS = 150 -- 黑洞力場擴大至 150 格
+-- 1e30 = 1,000,000,000,000,000,000,000,000,000,000
+-- 這是 Roblox 不會判定為 NaN 或 Infinity 的極限安全值
+-- 每次跳躍間距超過 2e30
+local TERMINUS_BASE = 1e30 
+local FORCEFIELD_RADIUS = 200 
 
 local isActive = false
 local realCFrame = nil
+local togglePhase = 0 
 local overlapParams = OverlapParams.new()
 overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -28,7 +32,7 @@ local renderConnection = nil
 local heartbeatConnection = nil
 
 -- ==========================================
--- [ 異步 Hitbox 處理 (敵方 2048 擴張) ]
+-- [ 敵方 hitbox 崩壞處理 ]
 -- ==========================================
 task.spawn(function()
     while true do
@@ -39,10 +43,12 @@ task.spawn(function()
                     pcall(function()
                         local enemyHitbox = workspace:FindFirstChild(plr.Name) and workspace[plr.Name]:FindFirstChild("HitboxHead")
                         if enemyHitbox then
-                            enemyHitbox.Size = Vector3.new(2048, 2048, 2048)
-                            enemyHitbox.Transparency = 0.85
+                            -- 強制將敵方 Hitbox 放逐到反向極限
+                            enemyHitbox.CFrame = CFrame.new(-TERMINUS_BASE, -TERMINUS_BASE, -TERMINUS_BASE)
+                            enemyHitbox.Size = Vector3.new(0, 0, 0)
                             enemyHitbox.CanCollide = false
-                            enemyHitbox.Massless = true
+                            enemyHitbox.CanTouch = false
+                            enemyHitbox.CanQuery = false
                         end
                     end)
                 end
@@ -55,7 +61,7 @@ end)
 -- [ GUI 建構 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'AegisV21GUI'
+ScreenGui.Name = 'AegisV24GUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = game:GetService('CoreGui') end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
@@ -64,7 +70,7 @@ local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
 MainFrame.Size = UDim2.new(0, 310, 0, 310)
 MainFrame.Position = UDim2.new(0.85, -50, 0.75, -110)
-MainFrame.BackgroundColor3 = Color3.fromRGB(5, 5, 15) 
+MainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0) -- 絕對純黑
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
@@ -74,14 +80,14 @@ local MainCorner = Instance.new('UICorner', MainFrame)
 MainCorner.CornerRadius = UDim.new(0, 8)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(0, 200, 255)
-MainStroke.Thickness = 2
+MainStroke.Color = Color3.fromRGB(255, 0, 0) -- 終焉紅
+MainStroke.Thickness = 3
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '🛡️ V21 AEGIS OVERRIDE'
-TitleText.TextColor3 = Color3.fromRGB(100, 220, 255)
+TitleText.Text = '⚠ V24 TERMINUS LIMIT'
+TitleText.TextColor3 = Color3.fromRGB(255, 50, 50)
 TitleText.TextSize = 16
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
@@ -90,7 +96,7 @@ local StatusText = Instance.new('TextLabel', MainFrame)
 StatusText.Size = UDim2.new(1, 0, 0, 20)
 StatusText.Position = UDim2.new(0, 0, 0, 35)
 StatusText.BackgroundTransparency = 1
-StatusText.Text = 'STATUS: VULNERABLE'
+StatusText.Text = 'STATUS: NORMAL'
 StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
 StatusText.TextSize = 12
 StatusText.Font = Enum.Font.GothamBold
@@ -99,8 +105,8 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 40, 80)
-ToggleBtn.Text = 'ENGAGE AEGIS [P]'
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(40, 0, 0)
+ToggleBtn.Text = 'ACTIVATE TERMINUS [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
@@ -111,17 +117,17 @@ local StatsText = Instance.new('TextLabel', MainFrame)
 StatsText.Size = UDim2.new(1, 0, 0, 180)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] Velocity Spoof (Anti-Aimbot)\n[✓] TouchInterest Erasure\n[✓] True Network Desync\n[✓] Local Projectile Annihilation\n[✓] Absolute Intangibility'
-StatsText.TextColor3 = Color3.fromRGB(180, 230, 255)
-StatsText.TextSize = 12
+StatsText.Text = '[⚠] COORD LIMIT: +/- 1e30 (MAX)\n[⚠] INTERVAL: > 2e30 PER TICK\n[⚠] TOUCH INTEREST: PURGED\n[⚠] INTANGIBILITY: ABSOLUTE\n[⚠] ENGINE BREAK BYPASS: ON\n\nFloat32 limits engaged.'
+StatsText.TextColor3 = Color3.fromRGB(255, 100, 100)
+StatsText.TextSize = 11
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
 StatsText.Font = Enum.Font.Code
 StatsText.Parent = MainFrame
 
 -- ==========================================
--- [ 引擎：絕對脫軌防禦機制啟動 ]
+-- [ 引擎：32位元終極崩潰迴避脫軌 ]
 -- ==========================================
-local function StartApotheosis()
+local function StartTerminus()
     local char = LocalPlayer.Character
     if not char then return end
     
@@ -138,68 +144,64 @@ local function StartApotheosis()
 
         realCFrame = currentHrp.CFrame
         
-        -- 1. 真·網路脫軌 (CFrame Desync)
-        local voidOffset = Vector3.new(math.random(-10, 10), DESYNC_HEIGHT, math.random(-10, 10))
-        currentHrp.CFrame = realCFrame + voidOffset
+        -- 四象限絕對跳躍 (確保每一幀的位移量達到最大極限 2e30)
+        togglePhase = (togglePhase + 1) % 4
         
-        -- 2. 動能欺騙 (Velocity Spoofing) - 徹底癱瘓敵方預判自瞄外掛
-        currentHrp.AssemblyLinearVelocity = Vector3.new(math.huge, math.huge, math.huge)
-        currentHrp.AssemblyAngularVelocity = Vector3.new(math.huge, math.huge, math.huge)
+        local targetX, targetY, targetZ
+        if togglePhase == 0 then
+            targetX, targetY, targetZ = TERMINUS_BASE, TERMINUS_BASE, TERMINUS_BASE
+        elseif togglePhase == 1 then
+            targetX, targetY, targetZ = -TERMINUS_BASE, TERMINUS_BASE * 1.5, -TERMINUS_BASE
+        elseif togglePhase == 2 then
+            targetX, targetY, targetZ = TERMINUS_BASE, TERMINUS_BASE * 2, -TERMINUS_BASE
+        else
+            targetX, targetY, targetZ = -TERMINUS_BASE, TERMINUS_BASE * 2.5, TERMINUS_BASE
+        end
+
+        local terminusOffset = Vector3.new(targetX, targetY, targetZ)
         
-        -- 3. 自體 Hitbox 與觸碰抹除
+        -- 瞬間放逐
+        currentHrp.CFrame = CFrame.new(realCFrame.Position + terminusOffset)
+        
+        -- 徹底無效化 Touch (防止對手用 math.huge 範圍觸碰)
+        for _, obj in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if obj:IsA("TouchTransmitter") then
+                obj:Destroy() -- 毀滅觸發器
+            elseif obj:IsA("BasePart") then
+                pcall(function()
+                    obj.CanTouch = false
+                    obj.CanQuery = false
+                end)
+            end
+        end
+
+        -- 清除 HitboxHead
         pcall(function()
             local myHitbox = workspace:FindFirstChild(LocalPlayer.Name) and workspace[LocalPlayer.Name]:FindFirstChild("HitboxHead")
             if myHitbox then
-                myHitbox.CFrame = CFrame.new(0, VOID_DEPTH, 0)
-                myHitbox.Size = Vector3.new(0, 0, 0)
-                myHitbox.CanCollide = false
-                myHitbox.CanQuery = false
+                myHitbox.CFrame = CFrame.new(TERMINUS_BASE, TERMINUS_BASE, TERMINUS_BASE)
+                myHitbox.Size = Vector3.zero
                 myHitbox.CanTouch = false
+                myHitbox.CanQuery = false
+                local touch = myHitbox:FindFirstChildOfClass("TouchTransmitter")
+                if touch then touch:Destroy() end
             end
         end)
-
-        for _, obj in ipairs(LocalPlayer.Character:GetDescendants()) do
-            -- 【絕對防禦】：強制刪除觸碰感應器，讓帶有傷害的投擲物無法觸發
-            if obj:IsA("TouchTransmitter") then
-                obj:Destroy()
-            elseif obj:IsA("BasePart") then
-                pcall(function()
-                    obj.CanQuery = false 
-                    obj.CanTouch = false
-                end)
-            end
-        end
-
-        -- 4. 絕對湮滅力場 (Local Projectile Eradication)
-        local threats = workspace:GetPartBoundsInRadius(realCFrame.Position, FORCEFIELD_RADIUS, overlapParams)
-        for _, threat in ipairs(threats) do
-            if threat:IsA("BasePart") and threat.Size.Magnitude < 150 and not threat.Anchored then
-                pcall(function()
-                    -- 不只是彈開，而是直接在本地端將威脅物放逐到虛空並剝奪判定
-                    threat.CFrame = CFrame.new(math.huge, math.huge, math.huge)
-                    threat.AssemblyLinearVelocity = Vector3.zero
-                    threat.CanTouch = false
-                    threat.CanQuery = false
-                    threat.Transparency = 1
-                end)
-            end
-        end
     end)
 
     renderConnection = RunService.RenderStepped:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if currentHrp and realCFrame then
-            -- 視覺回歸：讓你本地畫面看起來完全正常
+            -- 渲染時拉回真實座標
             currentHrp.CFrame = realCFrame
-            -- 將本地速度歸零，避免你自己控制時飛出去
             currentHrp.AssemblyLinearVelocity = Vector3.zero
             currentHrp.AssemblyAngularVelocity = Vector3.zero
         end
     end)
 end
 
-local function StopApotheosis()
+local function StopTerminus()
     if renderConnection then renderConnection:Disconnect() end
     if heartbeatConnection then heartbeatConnection:Disconnect() end
     
@@ -228,24 +230,24 @@ local isHovering = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = 'STATUS: AEGIS ACTIVE'
-        StatusText.TextColor3 = Color3.fromRGB(0, 200, 255)
-        MainStroke.Color = Color3.fromRGB(0, 200, 255)
-        ToggleBtn.Text = 'EXIT AEGIS [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 80, 150) or Color3.fromRGB(0, 60, 120)
+        StatusText.Text = 'STATUS: TERMINUS ACTIVE'
+        StatusText.TextColor3 = Color3.fromRGB(255, 50, 50)
+        MainStroke.Color = Color3.fromRGB(255, 50, 50)
+        ToggleBtn.Text = 'DEACTIVATE [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(150, 0, 0) or Color3.fromRGB(120, 0, 0)
     else
-        StatusText.Text = 'STATUS: VULNERABLE'
+        StatusText.Text = 'STATUS: NORMAL'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
         MainStroke.Color = Color3.fromRGB(100, 100, 100)
-        ToggleBtn.Text = 'ENGAGE AEGIS [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 60, 120) or Color3.fromRGB(0, 40, 80)
+        ToggleBtn.Text = 'ACTIVATE TERMINUS [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(60, 0, 0) or Color3.fromRGB(40, 0, 0)
     end
 end
 
 local function ToggleSystem()
     isActive = not isActive
     UpdateUI()
-    if isActive then StartApotheosis() else StopApotheosis() end
+    if isActive then StartTerminus() else StopTerminus() end
 end
 
 ToggleBtn.MouseEnter:Connect(function() isHovering = true UpdateUI() end)
@@ -262,6 +264,6 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     if isActive then
         task.wait(0.5)
         overlapParams.FilterDescendantsInstances = {newChar}
-        StartApotheosis()
+        StartTerminus()
     end
 end)
