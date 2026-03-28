@@ -1,8 +1,8 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V20: ABSOLUTE DESYNC (絕對脫軌) ]] --
--- 終極防禦：本地遊玩，伺服器判定放逐高空，自體判定框徹底抹除，敵方判定框擴張 2048
+-- [[ VOID x AEGIS V21: AEGIS OVERRIDE (神盾覆寫) ]] --
+-- 終極反外掛投擲物：動能欺騙、觸碰抹除、本地端投擲物強制湮滅
 
 local Players = game:GetService('Players')
 local UserInputService = game:GetService('UserInputService')
@@ -14,9 +14,9 @@ local toggleKey = Enum.KeyCode.P
 -- ==========================================
 -- [ 核心奇點參數 ]
 -- ==========================================
-local DESYNC_HEIGHT = 500000 -- 伺服器端假身高度 (50萬格高空)
-local VOID_DEPTH = -99999 -- 自身判定框放逐深度
-local FORCEFIELD_RADIUS = 100 -- 黑洞力場半徑
+local DESYNC_HEIGHT = 500000 -- 伺服器端假身高度
+local VOID_DEPTH = 500000 -- 放逐深度 (改為正數高空，避免觸發跌落死亡機制)
+local FORCEFIELD_RADIUS = 150 -- 黑洞力場擴大至 150 格
 
 local isActive = false
 local realCFrame = nil
@@ -26,18 +26,16 @@ overlapParams.FilterType = Enum.RaycastFilterType.Exclude
 -- 連接池
 local renderConnection = nil
 local heartbeatConnection = nil
-local hitboxConnection = nil
 
 -- ==========================================
 -- [ 異步 Hitbox 處理 (敵方 2048 擴張) ]
 -- ==========================================
 task.spawn(function()
     while true do
-        task.wait(0.1) -- 提高刷新頻率以防遊戲重置 Hitbox
+        task.wait(0.1)
         if isActive then
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer and plr.Character then
-                    -- 【敵方：絕對路徑 2048 Hitbox 擴張】
                     pcall(function()
                         local enemyHitbox = workspace:FindFirstChild(plr.Name) and workspace[plr.Name]:FindFirstChild("HitboxHead")
                         if enemyHitbox then
@@ -57,16 +55,16 @@ end)
 -- [ GUI 建構 ]
 -- ==========================================
 local ScreenGui = Instance.new('ScreenGui')
-ScreenGui.Name = 'VoidAbsoluteGUI'
+ScreenGui.Name = 'AegisV21GUI'
 ScreenGui.ResetOnSpawn = false
 pcall(function() ScreenGui.Parent = game:GetService('CoreGui') end)
 if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 310, 0, 290)
-MainFrame.Position = UDim2.new(0.85, -50, 0.75, -90)
-MainFrame.BackgroundColor3 = Color3.fromRGB(5, 0, 10) 
+MainFrame.Size = UDim2.new(0, 310, 0, 310)
+MainFrame.Position = UDim2.new(0.85, -50, 0.75, -110)
+MainFrame.BackgroundColor3 = Color3.fromRGB(5, 5, 15) 
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
 MainFrame.Draggable = true 
@@ -76,14 +74,14 @@ local MainCorner = Instance.new('UICorner', MainFrame)
 MainCorner.CornerRadius = UDim.new(0, 8)
 
 local MainStroke = Instance.new('UIStroke', MainFrame)
-MainStroke.Color = Color3.fromRGB(255, 0, 100)
+MainStroke.Color = Color3.fromRGB(0, 200, 255)
 MainStroke.Thickness = 2
 
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '🩸 V20 ABSOLUTE DESYNC'
-TitleText.TextColor3 = Color3.fromRGB(255, 100, 150)
+TitleText.Text = '🛡️ V21 AEGIS OVERRIDE'
+TitleText.TextColor3 = Color3.fromRGB(100, 220, 255)
 TitleText.TextSize = 16
 TitleText.Font = Enum.Font.GothamBlack
 TitleText.Parent = MainFrame
@@ -101,8 +99,8 @@ StatusText.Parent = MainFrame
 local ToggleBtn = Instance.new('TextButton', MainFrame)
 ToggleBtn.Size = UDim2.new(0.8, 0, 0, 40)
 ToggleBtn.Position = UDim2.new(0.1, 0, 0, 65)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(80, 0, 30)
-ToggleBtn.Text = 'ENGAGE DESYNC [P]'
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 40, 80)
+ToggleBtn.Text = 'ENGAGE AEGIS [P]'
 ToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 ToggleBtn.TextSize = 14
 ToggleBtn.Font = Enum.Font.GothamBold
@@ -110,11 +108,11 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 160)
+StatsText.Size = UDim2.new(1, 0, 0, 180)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] True Network Desync (500k)\n[✓] Self Hitbox Banished (-99k)\n[✓] Absolute Intangibility\n[✓] Blackhole Shield (100 Studs)\n[✓] Enemy 2048x HitboxHead'
-StatsText.TextColor3 = Color3.fromRGB(255, 180, 200)
+StatsText.Text = '[✓] Velocity Spoof (Anti-Aimbot)\n[✓] TouchInterest Erasure\n[✓] True Network Desync\n[✓] Local Projectile Annihilation\n[✓] Absolute Intangibility'
+StatsText.TextColor3 = Color3.fromRGB(180, 230, 255)
 StatsText.TextSize = 12
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
 StatsText.Font = Enum.Font.Code
@@ -133,62 +131,70 @@ local function StartApotheosis()
     realCFrame = hrp.CFrame
     overlapParams.FilterDescendantsInstances = {char}
 
-    -- [核心 1] Heartbeat：物理結算後，欺騙伺服器與抹除自身 Hitbox
     heartbeatConnection = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not currentHrp then return end
 
-        -- 1. 儲存你本地真實操作的正確位置
         realCFrame = currentHrp.CFrame
         
-        -- 2. 真·網路脫軌：將你的實體拋到 50萬格高空 (伺服器和其他玩家會認為你在這)
-        local voidOffset = Vector3.new(math.random(-100, 100), DESYNC_HEIGHT, math.random(-100, 100))
+        -- 1. 真·網路脫軌 (CFrame Desync)
+        local voidOffset = Vector3.new(math.random(-10, 10), DESYNC_HEIGHT, math.random(-10, 10))
         currentHrp.CFrame = realCFrame + voidOffset
         
-        -- 3. 抹除你自己的 Hitbox (防止遊戲使用獨立判定框)
+        -- 2. 動能欺騙 (Velocity Spoofing) - 徹底癱瘓敵方預判自瞄外掛
+        currentHrp.AssemblyLinearVelocity = Vector3.new(math.huge, math.huge, math.huge)
+        currentHrp.AssemblyAngularVelocity = Vector3.new(math.huge, math.huge, math.huge)
+        
+        -- 3. 自體 Hitbox 與觸碰抹除
         pcall(function()
             local myHitbox = workspace:FindFirstChild(LocalPlayer.Name) and workspace[LocalPlayer.Name]:FindFirstChild("HitboxHead")
             if myHitbox then
-                -- 將自己的判定框放逐到地底極深處，尺寸歸零，並關閉一切物理探測
                 myHitbox.CFrame = CFrame.new(0, VOID_DEPTH, 0)
                 myHitbox.Size = Vector3.new(0, 0, 0)
                 myHitbox.CanCollide = false
                 myHitbox.CanQuery = false
                 myHitbox.CanTouch = false
-                myHitbox.Transparency = 1
             end
         end)
 
-        -- 4. 本體無形化 (免疫 Raycast 光線追蹤)
-        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
+        for _, obj in ipairs(LocalPlayer.Character:GetDescendants()) do
+            -- 【絕對防禦】：強制刪除觸碰感應器，讓帶有傷害的投擲物無法觸發
+            if obj:IsA("TouchTransmitter") then
+                obj:Destroy()
+            elseif obj:IsA("BasePart") then
                 pcall(function()
-                    part.CanQuery = false 
-                    part.CanTouch = false
+                    obj.CanQuery = false 
+                    obj.CanTouch = false
                 end)
             end
         end
 
-        -- 5. 黑洞力場 (防禦近身或投擲物)
+        -- 4. 絕對湮滅力場 (Local Projectile Eradication)
         local threats = workspace:GetPartBoundsInRadius(realCFrame.Position, FORCEFIELD_RADIUS, overlapParams)
         for _, threat in ipairs(threats) do
-            if threat:IsA("BasePart") and threat.Size.Magnitude < 100 then
-                pcall(function() threat.CanTouch = false threat.CanQuery = false end)
-                if not threat.Anchored then
-                    threat.AssemblyLinearVelocity = Vector3.new(math.huge, math.huge, math.huge)
-                end
+            if threat:IsA("BasePart") and threat.Size.Magnitude < 150 and not threat.Anchored then
+                pcall(function()
+                    -- 不只是彈開，而是直接在本地端將威脅物放逐到虛空並剝奪判定
+                    threat.CFrame = CFrame.new(math.huge, math.huge, math.huge)
+                    threat.AssemblyLinearVelocity = Vector3.zero
+                    threat.CanTouch = false
+                    threat.CanQuery = false
+                    threat.Transparency = 1
+                end)
             end
         end
     end)
 
-    -- [核心 2] RenderStepped：在畫面渲染前，把你拉回真實位置，讓你能正常玩
     renderConnection = RunService.RenderStepped:Connect(function()
         if not isActive then return end
         local currentHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if currentHrp and realCFrame then
-            -- 覆蓋掉剛才 Heartbeat 的高空假座標，讓你的視角和操作完全正常
+            -- 視覺回歸：讓你本地畫面看起來完全正常
             currentHrp.CFrame = realCFrame
+            -- 將本地速度歸零，避免你自己控制時飛出去
+            currentHrp.AssemblyLinearVelocity = Vector3.zero
+            currentHrp.AssemblyAngularVelocity = Vector3.zero
         end
     end)
 end
@@ -196,22 +202,21 @@ end
 local function StopApotheosis()
     if renderConnection then renderConnection:Disconnect() end
     if heartbeatConnection then heartbeatConnection:Disconnect() end
-    if hitboxConnection then hitboxConnection:Disconnect() end
     
     local char = LocalPlayer.Character
     if char then
-        for _, part in ipairs(char:GetDescendants()) do
-            if part:IsA("BasePart") then
+        for _, obj in ipairs(char:GetDescendants()) do
+            if obj:IsA("BasePart") then
                 pcall(function()
-                    part.CanTouch = true
-                    part.CanQuery = true
+                    obj.CanTouch = true
+                    obj.CanQuery = true
                 end)
             end
         end
-
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp and realCFrame then
             hrp.CFrame = realCFrame
+            hrp.AssemblyLinearVelocity = Vector3.zero
         end
     end
 end
@@ -223,17 +228,17 @@ local isHovering = false
 
 local function UpdateUI()
     if isActive then
-        StatusText.Text = 'STATUS: ABSOLUTE VOID'
-        StatusText.TextColor3 = Color3.fromRGB(255, 0, 100)
-        MainStroke.Color = Color3.fromRGB(255, 0, 100)
-        ToggleBtn.Text = 'EXIT VOID [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(120, 0, 50) or Color3.fromRGB(100, 0, 40)
+        StatusText.Text = 'STATUS: AEGIS ACTIVE'
+        StatusText.TextColor3 = Color3.fromRGB(0, 200, 255)
+        MainStroke.Color = Color3.fromRGB(0, 200, 255)
+        ToggleBtn.Text = 'EXIT AEGIS [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 80, 150) or Color3.fromRGB(0, 60, 120)
     else
         StatusText.Text = 'STATUS: VULNERABLE'
         StatusText.TextColor3 = Color3.fromRGB(150, 150, 150)
         MainStroke.Color = Color3.fromRGB(100, 100, 100)
-        ToggleBtn.Text = 'ENGAGE DESYNC [P]'
-        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(100, 0, 40) or Color3.fromRGB(80, 0, 30)
+        ToggleBtn.Text = 'ENGAGE AEGIS [P]'
+        ToggleBtn.BackgroundColor3 = isHovering and Color3.fromRGB(0, 60, 120) or Color3.fromRGB(0, 40, 80)
     end
 end
 
