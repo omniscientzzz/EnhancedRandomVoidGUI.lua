@@ -1,9 +1,10 @@
 local fenv = getfenv()
 fenv.require = function() end
 
--- [[ VOID x AEGIS V34: WRAITH (怨靈・破甲與圖層剝離) ]] --
--- 核心 1：Shield Breaker (破甲打擊) - 本地端摧毀敵人所有護盾實體與數值。
--- 核心 2：Hierarchy Shift (圖層剝離) - 將你的角色移出 Workspace，徹底無效化敵方的全圖 AoE 鎖定。
+-- [[ VOID x AEGIS V34: WRAITH (怨靈・破甲與無限領域) ]] --
+-- 核心 1：Shield Breaker (破甲打擊) - 摧毀敵人所有護盾。
+-- 核心 2：Hierarchy Shift (圖層剝離) - 移出 Workspace 規避 AoE。
+-- 核心 3：Omnipresent Aegis (全知神盾) - 將 Hitbox 放大至引擎極限 (2048 Studs)。
 
 local Players = game:GetService('Players')
 local RunService = game:GetService('RunService')
@@ -14,6 +15,7 @@ local toggleKey = Enum.KeyCode.P
 
 local isActive = false
 local connections = {}
+local lastScanTime = 0
 
 -- ==========================================
 -- [ GUI 建構 (怨靈幽紫風格) ]
@@ -26,7 +28,7 @@ if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("Player
 
 local MainFrame = Instance.new('Frame')
 MainFrame.Name = 'MainFrame'
-MainFrame.Size = UDim2.new(0, 330, 0, 320)
+MainFrame.Size = UDim2.new(0, 330, 0, 340)
 MainFrame.Position = UDim2.new(0.85, -60, 0.75, -130)
 MainFrame.BackgroundColor3 = Color3.fromRGB(15, 5, 20)
 MainFrame.BorderSizePixel = 0
@@ -44,7 +46,7 @@ MainStroke.Thickness = 2
 local TitleText = Instance.new('TextLabel', MainFrame)
 TitleText.Size = UDim2.new(1, 0, 0, 30)
 TitleText.BackgroundTransparency = 1
-TitleText.Text = '👻 V34 WRAITH (ARMOR PIERCER)'
+TitleText.Text = '👻 V34 WRAITH (OMNIPRESENT)'
 TitleText.TextColor3 = Color3.fromRGB(200, 100, 255)
 TitleText.TextSize = 15
 TitleText.Font = Enum.Font.GothamBlack
@@ -72,10 +74,10 @@ ToggleBtn.Parent = MainFrame
 Instance.new('UICorner', ToggleBtn).CornerRadius = UDim.new(0, 4)
 
 local StatsText = Instance.new('TextLabel', MainFrame)
-StatsText.Size = UDim2.new(1, 0, 0, 190)
+StatsText.Size = UDim2.new(1, 0, 0, 210)
 StatsText.Position = UDim2.new(0.1, 0, 0, 115)
 StatsText.BackgroundTransparency = 1
-StatsText.Text = '[✓] Enemy Shields Eradicated (Local)\n[✓] Projectiles Ignore Armor\n[✓] Workspace Hierarchy Shift\n[✓] AoE & Raycast Invisibility\n\nYour attacks now pierce all shields.\nYour body no longer exists in Workspace.\nEnemy scripts cannot target you.'
+StatsText.Text = '[✓] Enemy Shields Eradicated\n[✓] Workspace Hierarchy Shift\n[✓] Projectiles Nullified\n[✓] Infinite Hitbox (2048 Studs)\n\nYour Aegis barrier now covers the entire\nmap. Any unanchored projectile or raycast\nspawned anywhere will be instantly\nabsorbed by your limitless domain.'
 StatsText.TextColor3 = Color3.fromRGB(180, 120, 255)
 StatsText.TextSize = 11
 StatsText.TextXAlignment = Enum.TextXAlignment.Left
@@ -90,33 +92,26 @@ local function StripEnemyShields()
         if player ~= LocalPlayer and player.Character then
             local enemyChar = player.Character
 
-            -- 1. 摧毀官方 ForceField
             local ff = enemyChar:FindFirstChildOfClass("ForceField")
             if ff then ff:Destroy() end
 
-            -- 2. 徹底無效化所有客製化盾牌部件與屬性
             for _, obj in ipairs(enemyChar:GetDescendants()) do
                 local name = obj.Name:lower()
-                
-                -- 如果發現名字包含 shield (盾), armor (甲), protect (保護) 的東西
                 if name:match("shield") or name:match("armor") or name:match("protect") or name:match("barrier") then
                     if obj:IsA("BasePart") then
-                        -- 不直接刪除(怕破壞他們骨架)，但剝奪所有物理與判定
                         pcall(function()
                             obj.CanCollide = false
                             obj.CanTouch = false
-                            obj.CanQuery = false -- 你的射線/投擲物將直接穿透它！
+                            obj.CanQuery = false 
                             obj.Transparency = 1
-                            obj.Size = Vector3.new(0.01, 0.01, 0.01)
+                            obj.Size = Vector3.new(0.01, 0.01, 0.01) 
                         end)
                     elseif obj:IsA("ValueBase") then
-                        -- 如果是數值類型的護盾(例如 Health.Shield.Value = 100)，強制作廢
                         pcall(function() obj.Value = 0 end)
                     end
                 end
             end
 
-            -- 3. 駭入 Attributes (有些遊戲把護盾寫在屬性裡)
             pcall(function()
                 if enemyChar:GetAttribute("Shield") or enemyChar:GetAttribute("Armor") then
                     enemyChar:SetAttribute("Shield", 0)
@@ -128,23 +123,87 @@ local function StripEnemyShields()
 end
 
 -- ==========================================
+-- [ 核心 3：全知神盾 (Omnipresent Aegis) ]
+-- ==========================================
+local function EnsureAegisBarrier(char)
+    if not char then return end
+    
+    -- 1. 官方防護罩 (抵禦基礎腳本傷害)
+    if not char:FindFirstChild("WraithForceField") then
+        local ff = Instance.new("ForceField")
+        ff.Name = "WraithForceField"
+        ff.Visible = false
+        ff.Parent = char
+    end
+
+    -- 2. 極限體積結界 (引擎上限：2048x2048x2048)
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if root and not char:FindFirstChild("AegisBarrier") then
+        local barrier = Instance.new("Part")
+        barrier.Name = "AegisBarrier"
+        barrier.Shape = Enum.PartType.Ball
+        
+        -- 【關鍵修改】：將盾牌的 Hitbox 放大至 Roblox 引擎的物理極限
+        barrier.Size = Vector3.new(2048, 2048, 2048) 
+        
+        barrier.Material = Enum.Material.ForceField
+        barrier.Color = Color3.fromRGB(100, 0, 255)
+        
+        -- 因為體積過於巨大，必須將其完全隱形，否則會遮蔽整個遊戲畫面
+        barrier.Transparency = 1 
+        
+        barrier.CanCollide = false 
+        barrier.CanTouch = true    -- 觸發投擲物銷毀
+        barrier.CanQuery = true    -- 吸收全地圖的射線 (Raycast)
+        barrier.Massless = true
+        barrier.Anchored = false
+        barrier.CastShadow = false
+
+        -- 將結界綁定在玩家身上
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = barrier
+        weld.Part1 = root
+        weld.Parent = barrier
+
+        barrier.CFrame = root.CFrame
+        barrier.Parent = char
+
+        -- [全圖投擲物抹除邏輯]
+        barrier.Touched:Connect(function(hit)
+            if hit and hit.Parent and not hit:IsDescendantOf(char) and not hit:IsDescendantOf(workspace.Terrain) then
+                -- 攔截未錨定的物體 (過濾掉地圖建築)
+                if not hit.Anchored and hit.Size.Magnitude < 100 then
+                    pcall(function()
+                        hit.CanTouch = false
+                        hit.Velocity = Vector3.new(0, 0, 0)
+                        hit:Destroy()
+                    end)
+                end
+            end
+        end)
+    end
+end
+
+local function RemoveAegisBarrier(char)
+    if not char then return end
+    local ff = char:FindFirstChild("WraithForceField")
+    if ff then ff:Destroy() end
+    local barrier = char:FindFirstChild("AegisBarrier")
+    if barrier then barrier:Destroy() end
+end
+
+-- ==========================================
 -- [ 核心 2：圖層剝離 (Hierarchy Shift) ]
 -- ==========================================
 local function ShiftDimension(char)
     if not char then return end
     
-    -- 【神級防禦技巧】：將你的角色從 Workspace 移到 Camera
-    -- 對手的範圍爆破(AoE)外掛通常會寫：`for _, v in pairs(workspace:GetChildren())`
-    -- 當你躲在 Camera 裡時，他們的外掛腳本「在物理圖層上」根本找不到你，直接報錯失效。
     if char.Parent ~= workspace.CurrentCamera then
-        pcall(function()
-            char.Parent = workspace.CurrentCamera
-        end)
+        pcall(function() char.Parent = workspace.CurrentCamera end)
     end
     
-    -- 雙重保險：關閉所有部位的射線判定
     for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
+        if part:IsA("BasePart") and part.Name ~= "AegisBarrier" then
             pcall(function()
                 part.CanQuery = false
                 part.CanTouch = false
@@ -153,21 +212,29 @@ local function ShiftDimension(char)
     end
 end
 
+-- ==========================================
+-- [ 系統生命週期控制 ]
+-- ==========================================
 local function StartWraith()
     local char = LocalPlayer.Character
     if not char then return end
 
-    -- 啟動高頻掃描，確保敵人的盾牌一長出來就瞬間破壞，且確保你一直藏在 Camera 中
+    EnsureAegisBarrier(char)
+
     local loop = RunService.Heartbeat:Connect(function()
         if not isActive then return end
         
-        -- 進攻：破甲
-        StripEnemyShields()
+        local currentTime = tick()
+        if currentTime - lastScanTime >= 0.5 then
+            StripEnemyShields()
+            lastScanTime = currentTime
+        end
         
-        -- 防守：躲避掃描
         local currentChar = LocalPlayer.Character
         if currentChar then
             ShiftDimension(currentChar)
+            EnsureAegisBarrier(currentChar)
+            -- 移除了旋轉特效，因為現在結界是全透明且覆蓋全圖的，旋轉會消耗多餘的效能
         end
     end)
     table.insert(connections, loop)
@@ -181,8 +248,9 @@ local function StopWraith()
     
     local char = LocalPlayer.Character
     if char then
-        -- 將角色放回 Workspace，恢復正常狀態
         pcall(function() char.Parent = workspace end)
+        RemoveAegisBarrier(char)
+        
         for _, part in ipairs(char:GetDescendants()) do
             if part:IsA("BasePart") then
                 pcall(function()
@@ -237,4 +305,5 @@ LocalPlayer.CharacterAdded:Connect(function()
         StartWraith()
     end
 end)
+
 
